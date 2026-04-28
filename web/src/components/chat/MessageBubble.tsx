@@ -17,7 +17,7 @@ export default function MessageBubble({ message }: { message: Message }) {
           <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
             <p className="text-gray-800 text-sm leading-relaxed">{message.content}</p>
           </div>
-          <span className="text-[10px] text-gray-400 pl-1">{formatTime(message.timestamp)}</span>
+          <span className="text-[10px] text-gray-400 pl-1" suppressHydrationWarning>{formatTime(message.timestamp)}</span>
         </div>
       </div>
     );
@@ -29,7 +29,7 @@ export default function MessageBubble({ message }: { message: Message }) {
         <div className="bg-sl-gold rounded-2xl rounded-tr-sm px-4 py-2.5">
           <p className="text-sl-dark text-sm leading-relaxed font-medium">{message.content}</p>
         </div>
-        <span className="text-[10px] text-gray-400 pr-1">{formatTime(message.timestamp)}</span>
+        <span className="text-[10px] text-gray-400 pr-1" suppressHydrationWarning>{formatTime(message.timestamp)}</span>
       </div>
     </div>
   );
