@@ -23,7 +23,7 @@ function getClient(): BedrockRuntimeClient {
 }
 
 const MODEL_ID: string =
-  process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-3-7-sonnet-20250219-v1:0';
+  process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
 
 export async function converse(
   systemPrompt: string,
