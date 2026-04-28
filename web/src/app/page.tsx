@@ -37,7 +37,7 @@ export default function Home() {
           <main className="flex-1 min-w-0">
             <ChatPanel onMenuClick={() => setSidebarOpen(true)} />
           </main>
-          <aside className="hidden xl:flex w-80 flex-shrink-0">
+          <aside className="hidden lg:flex w-80 flex-shrink-0">
             <RightPanel />
           </aside>
         </div>
