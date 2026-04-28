@@ -2,12 +2,11 @@
 
 import { useState, KeyboardEvent, useRef, useEffect } from 'react';
 import { ArrowUp } from 'lucide-react';
-import { useSession } from '@/contexts/SessionContext';
-import type { Message } from '@/lib/types';
+import { useChat } from '@/hooks/useChat';
 
 export default function ChatInput() {
   const [value, setValue] = useState('');
-  const { messages, setMessages } = useSession();
+  const { sendMessage, isLoading } = useChat();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -17,17 +16,11 @@ export default function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
   }, [value]);
 
-  function handleSend() {
+  async function handleSend() {
     const trimmed = value.trim();
-    if (!trimmed) return;
-    const msg: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: trimmed,
-      timestamp: new Date(),
-    };
-    setMessages([...messages, msg]);
+    if (!trimmed || isLoading) return;
     setValue('');
+    await sendMessage(trimmed);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -37,7 +30,7 @@ export default function ChatInput() {
     }
   }
 
-  const canSend = value.trim().length > 0;
+  const canSend = value.trim().length > 0 && !isLoading;
 
   return (
     <div className="px-4 pb-4 pt-2 border-t border-gray-100">
@@ -47,9 +40,10 @@ export default function ChatInput() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
+          placeholder={isLoading ? 'Thinking...' : 'Type your message...'}
+          disabled={isLoading}
           rows={1}
-          className="flex-1 bg-transparent text-gray-800 text-sm placeholder-gray-400 resize-none outline-none leading-relaxed"
+          className="flex-1 bg-transparent text-gray-800 text-sm placeholder-gray-400 resize-none outline-none leading-relaxed disabled:opacity-50"
           style={{ scrollbarWidth: 'none', maxHeight: '128px' }}
         />
         <button

@@ -5,14 +5,15 @@ import { Menu } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
 import MessageBubble from '@/components/chat/MessageBubble';
 import ChatInput from '@/components/chat/ChatInput';
+import TypingIndicator from '@/components/chat/TypingIndicator';
 
 export default function ChatPanel({ onMenuClick }: { onMenuClick: () => void }) {
-  const { messages } = useSession();
+  const { messages, isLoading } = useSession();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isLoading]);
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl overflow-hidden shadow-xl">
@@ -42,6 +43,7 @@ export default function ChatPanel({ onMenuClick }: { onMenuClick: () => void }) 
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
+        {isLoading && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
 

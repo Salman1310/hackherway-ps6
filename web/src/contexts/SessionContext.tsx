@@ -1,6 +1,13 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  Dispatch,
+  SetStateAction,
+} from 'react';
 import type { SessionState, Message } from '@/lib/types';
 
 const initialSession: SessionState = {
@@ -15,15 +22,18 @@ const initialSession: SessionState = {
 const welcomeMessage: Message = {
   id: 'welcome',
   role: 'bot',
-  content: "Hi! I'm here to help set up your system access. Let's get started. What's your ACF2 ID?",
+  content:
+    "Hi! I'm here to help set up your system access. Let's get started — what's your ACF2 ID?",
   timestamp: new Date(),
 };
 
 type SessionContextType = {
   session: SessionState;
-  setSession: (s: SessionState) => void;
+  setSession: Dispatch<SetStateAction<SessionState>>;
   messages: Message[];
-  setMessages: (m: Message[]) => void;
+  setMessages: Dispatch<SetStateAction<Message[]>>;
+  isLoading: boolean;
+  setIsLoading: Dispatch<SetStateAction<boolean>>;
 };
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -31,9 +41,12 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionState>(initialSession);
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
+  const [isLoading, setIsLoading] = useState(false);
 
   return (
-    <SessionContext.Provider value={{ session, setSession, messages, setMessages }}>
+    <SessionContext.Provider
+      value={{ session, setSession, messages, setMessages, isLoading, setIsLoading }}
+    >
       {children}
     </SessionContext.Provider>
   );
