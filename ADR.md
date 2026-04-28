@@ -127,10 +127,12 @@ Deferred. Presented to judges as production roadmap item.
 **Supersedes:** ADR-003 v1 (Supabase + pgvector, 2025-04-24)
 
 ### Context
-Original decision used Supabase + pgvector for relational storage and vector similarity search. Decision changed: team uses company laptop for demo, MongoDB is preferred, and pgvector dependency removed (replaced by LLM context stuffing per ADR-011).
+Original decision used Supabase + pgvector for relational storage and vector similarity search. Decision changed: MongoDB Atlas (cloud, free M0 tier) used instead — accessible from both personal laptop (build) and company laptop (demo) without local install. pgvector dependency removed (replaced by LLM context stuffing per ADR-011).
 
 ### Decision
-MongoDB Community Server running locally. MongoDB Compass used as GUI. Connection string: `mongodb://localhost:27017/hackherway`.
+MongoDB Atlas M0 free tier. Cluster: `hackathon.jjcappv.mongodb.net`. Database: `hackherway`. MongoDB Compass used as GUI on both machines.
+
+Connection string format: `mongodb+srv://Hackathon:<password>@hackathon.jjcappv.mongodb.net/hackherway`
 
 **Collections:**
 
