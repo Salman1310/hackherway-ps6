@@ -64,6 +64,7 @@ Phase 15  → Polish + Demo Prep
 |------|-----|-------|
 | 3-panel layout: left sidebar + center chat + right panel | — | Sun Life Ask-inspired |
 | Left sidebar: app name/logo, "New Request" button, request history placeholder | — | |
+| Sidebar history: empty state shown until ACF2 ID verified | ADR-003 | No hardcoded items. Placeholder: "Enter your ACF2 ID to load history". Populated dynamically in Phase 2 after MongoDB fetch |
 | Center chat panel: bot avatar, message bubbles (bot left, user right), timestamps | — | |
 | Bottom-anchored input: "Type your message..." placeholder, dark circular send button | — | |
 | Right panel: split into top (template cards) and bottom (request status tracker) | — | Empty skeleton for now |
@@ -72,7 +73,7 @@ Phase 15  → Polish + Demo Prep
 | Conversation state management wired (session-level) | ADR-002 | Empty state object, ready for population |
 | Mobile-responsive layout (basic) | — | Judges may view on various screens |
 
-**Exit criteria:** Open app → see 3-panel layout → see welcome message → input field accepts text → nothing happens yet (no backend).
+**Exit criteria:** Open app → see 3-panel layout → see welcome message → input field accepts text → sidebar shows empty history state (not hardcoded items) → nothing happens yet (no backend).
 
 ---
 

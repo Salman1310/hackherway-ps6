@@ -1,33 +1,12 @@
 'use client';
 
-import { Plus, Clock, X } from 'lucide-react';
-
-type HistoryItem = {
-  id: string;
-  label: string;
-  date: string;
-  status: 'in-progress' | 'approved' | 'completed';
-};
-
-const historyItems: HistoryItem[] = [
-  { id: '1', label: 'Backend Developer Setup', date: 'Today', status: 'in-progress' },
-  { id: '2', label: 'DevOps Access Request', date: 'Yesterday', status: 'approved' },
-  { id: '3', label: 'Data Analyst Onboarding', date: 'Apr 22', status: 'completed' },
-];
-
-const statusStyles: Record<HistoryItem['status'], string> = {
-  'in-progress': 'text-sl-gold',
-  approved: 'text-green-400',
-  completed: 'text-white/30',
-};
-
-const statusLabels: Record<HistoryItem['status'], string> = {
-  'in-progress': 'In Progress',
-  approved: 'Approved',
-  completed: 'Completed',
-};
+import { Plus, Clock, History, X } from 'lucide-react';
+import { useSession } from '@/contexts/SessionContext';
 
 export default function Sidebar({ onClose }: { onClose: () => void }) {
+  const { session } = useSession();
+  const acf2Verified = !!session.acf2_id;
+
   return (
     <div className="flex flex-col h-full bg-sl-dark border-r border-white/10">
       {/* Logo */}
@@ -57,27 +36,25 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
 
       {/* History */}
       <div className="flex-1 overflow-y-auto px-3 pb-4 thin-scrollbar">
-        <div className="flex items-center gap-1.5 text-white/30 text-[10px] font-medium uppercase tracking-widest mb-2 px-1">
+        <div className="flex items-center gap-1.5 text-white/30 text-[10px] font-medium uppercase tracking-widest mb-3 px-1">
           <Clock className="w-3 h-3" />
           Recent Requests
         </div>
-        <ul className="space-y-0.5">
-          {historyItems.map((item) => (
-            <li key={item.id}>
-              <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group">
-                <div className="text-white/70 text-sm font-medium group-hover:text-white truncate">
-                  {item.label}
-                </div>
-                <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-white/30 text-xs">{item.date}</span>
-                  <span className={`text-xs ${statusStyles[item.status]}`}>
-                    {statusLabels[item.status]}
-                  </span>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+
+        {acf2Verified ? (
+          /* Populated in Phase 2 — MongoDB fetch by acf2_id */
+          <p className="text-white/30 text-xs px-2">Loading history...</p>
+        ) : (
+          /* Empty state — no ACF2 ID yet */
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
+            <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
+              <History className="w-5 h-5 text-white/20" />
+            </div>
+            <p className="text-white/30 text-xs leading-relaxed">
+              Enter your ACF2 ID to load your request history
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
