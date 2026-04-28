@@ -1,0 +1,165 @@
+================================================================================
+PROJECT ADR SUMMARY
+PS6: AI-Powered Access Approval Process Optimization
+Sun Life HackHERway 2025
+================================================================================
+Last updated: 2026-04-26
+Team: 2 developers (iamsa + Varuni)
+--------------------------------------------------------------------------------
+
+
+THE PROBLEM
+-----------
+At Sun Life, getting system access as a new joiner or role-changer is broken.
+A single onboarding can require 4-8 separate tickets across ServiceNow, Jira,
+email, SAM, and cloud tools. Approvers are unclear. No central tracking exists.
+End result: access provisioning takes anywhere from 2 to 30 days.
+
+Joiners have zero visibility. Managers are the bottleneck. And nobody can audit
+who approved what, when, and why.
+
+
+THE IDEA
+--------
+One AI-driven web app replaces the entire fragmented process.
+
+The joinee opens a chat interface, enters their ACF2 ID, and has a conversation
+with an AI agent. The agent verifies their identity against Workday, understands
+their role (asking clarifying questions if the input is vague), matches them to
+a persona-based access template, lets them confirm mandatory and optional access
+items, and then routes everything as a single bundled approval request through
+MS Teams.
+
+Approvers get a card in Teams. One click to approve or reject. The system
+provisions all tools in parallel on approval. The joinee sees live status in the
+same chat interface they started in.
+
+No tickets. No email chains. No mystery.
+
+
+WHAT MAKES IT INTELLIGENT
+--------------------------
+Three AI capabilities sit on top of the core flow:
+
+Agent A - Ambiguity Resolution
+  The joinee says "I do backend stuff." The agent asks the right questions until
+  role, seniority, and employment type are all resolved. Only then does it
+  retrieve an access template. This replaces the static dropdown forms that
+  break the moment someone's title doesn't match a predefined list.
+
+Agent B - Privilege Accumulation Detection (D3)
+  Before the request is submitted, the system checks if the new access bundle
+  combined with the joinee's existing permissions creates a dangerous
+  combination (e.g. production DB write + deploy pipeline write). If it does,
+  the agent surfaces a plain-language warning in the chat and flags it. Critical
+  combinations are auto-escalated to the security team regardless of what the
+  joinee clicks.
+
+Agent C - Live Status Queries
+  After submission, the joinee can ask "what's the status of my request?" at any
+  time. The agent queries the live approval state and responds conversationally.
+  No refresh. No ticket portal. No calling IT.
+
+Additional intelligence (D2):
+  Each Teams approval card includes an anomaly risk score (0-100) with a
+  plain-language explanation. Approvers see not just what is being requested,
+  but whether it looks unusual and why.
+
+
+TECHNOLOGY DECISIONS (LOCKED)
+------------------------------
+Frontend       Next.js (App Router) + Tailwind CSS
+               Running in web/ subdirectory
+
+LLM            Gemini 2.0 Flash (primary) - free tier, 1M tokens/day
+               Groq Llama 3.3 70B (fallback)
+
+Database       Supabase (PostgreSQL + pgvector)
+               Zero Supabase-specific features - plain SQL throughout
+               Drop-in compatible with AWS RDS PostgreSQL for production
+
+Embeddings     nomic-embed-text via Ollama (local, 768 dimensions)
+               Used for RAG-based persona template matching
+
+Approval       MS Teams Incoming Webhook + Adaptive Cards
+               Approve/Reject buttons call back to /api/approve and /api/reject
+
+Auth           BYPASS_AUTH=true for the hackathon
+               Azure AD + MSAL proposed for production (Sun Life already uses it)
+
+External       All external systems (Workday, ServiceNow, Jira, AD/LDAP, SAM)
+Systems        are mocked locally. Pre-seeded with 4 demo ACF2 IDs.
+
+Public URL     ngrok required for Teams approve/reject callbacks
+               (Teams cannot call localhost)
+
+
+DEMO USERS (PRE-SEEDED)
+------------------------
+RIYA001   Backend Developer, Payments, Full-time       Happy path
+JOHN002   Junior DevOps, Cloud Infrastructure          D2 anomaly score ~78/100
+PRIYA003  Data Analyst, Finance, Contract              D3 privilege warning fires
+SAM004    Unknown role                                 No template - draft + admin
+
+
+BUILD PHASES (16 total)
+-----------------------
+Phase  0  Foundation: repo, schema, seeds, mock APIs       [ NOT STARTED ]
+Phase  1  UI Shell: 3-panel layout, theming, hardcoded     [ COMPLETE    ]
+Phase  2  Identity: ACF2 input, Workday fetch, hard block  [ NOT STARTED ]
+Phase  3  Agent A: Ambiguity resolution loop               [ NOT STARTED ]
+Phase  4  RAG: Template retrieval, top 3, similarity       [ NOT STARTED ]
+Phase  5  Template UI: mandatory/optional, submission      [ NOT STARTED ]
+Phase  6  Approval Engine: state machine, routing, 24hr    [ NOT STARTED ]
+Phase  7  Teams: Webhook, Adaptive Cards, callbacks        [ NOT STARTED ]
+Phase  8  Orchestrator: parallel provisioning, failures    [ NOT STARTED ]
+Phase  9  Agent C: Real-time status in chat                [ NOT STARTED ]
+Phase 10  D2: Anomaly scoring + explainability             [ NOT STARTED ]
+Phase 11  Agent B: D3 privilege check in chat              [ NOT STARTED ]
+Phase 12  D1: Adaptive persona learning, nightly job       [ NOT STARTED ]
+Phase 13  Admin Dashboard + Audit Panel                    [ NOT STARTED ]
+Phase 14  Template Generation: no-match + ratification     [ NOT STARTED ]
+Phase 15  Polish + Demo Prep                               [ NOT STARTED ]
+
+
+PHASE 1 - WHAT WAS BUILT
+--------------------------
+Location: Hackathon/web/
+
+Three-panel layout matching the Sun Life Ask design language:
+  Left sidebar   Dark background with diagonal texture, gold "New Request"
+                 button, request history placeholder with 3 items
+  Center chat    White panel, bot avatar (gold sun icon), message bubbles
+                 (bot = gray left, user = gold right), auto-scrolling,
+                 bottom-anchored textarea input with dark circular send button
+  Right panel    Top: "Access Template" skeleton with 3 placeholder cards
+                 Bottom: "Request Status" 4-step timeline tracker
+
+Hardcoded welcome message on load:
+  "Hi! I'm here to help set up your system access.
+   Let's get started. What's your ACF2 ID?"
+
+Session state wired (empty, ready for Phase 2):
+  acf2_id, workday_context, resolved_role, selected_template,
+  final_bundle, request_id
+
+Mobile: sidebar hidden behind hamburger toggle on small screens.
+Right panel: hidden below xl breakpoint.
+
+Colors: gold #FFD100, dark background #1E1E2E
+Stack:  Next.js 16.2.4, Tailwind CSS v4, TypeScript, lucide-react
+
+
+MUST-HAVE CUT LINE (if time runs short)
+-----------------------------------------
+Keep:   ACF2 lookup, template match, bundled request, Teams card,
+        approve/reject callback, status visibility
+Add if possible: D3 privilege warning (Agent B), D2 anomaly score
+Cut if needed:   D1 adaptive learning, SAM004 no-match flow,
+                 routing table editor, full admin ratification
+
+================================================================================
+Full architectural decisions: ADR.md
+Full build phases + exit criteria: PHASES.md
+Team ownership split: TEAM_BUILD_PLAN.md
+================================================================================
