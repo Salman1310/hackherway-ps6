@@ -1,24 +1,30 @@
-# Project Setup — Company Laptop (From Scratch)
+# Project Setup — From Scratch
 
 Sun Life HackHERway PS6 · AI-Powered Access Approval Process Optimization
+
+> **How the project runs:** Two separate processes — a Python backend (port 8000) and a Next.js frontend (port 3000). Both must be running at the same time.
 
 ---
 
 ## Prerequisites
 
-Install these before anything else.
+Install all of these before starting.
 
 | Tool | Version | Download |
 |------|---------|---------|
-| Node.js | 18+ (LTS recommended) | https://nodejs.org |
+| Python | 3.11+ | https://python.org/downloads |
+| Node.js | 18+ LTS | https://nodejs.org |
 | Git | Any recent | https://git-scm.com |
 
 Verify after install:
 ```bash
-node -v    # should print v18.x.x or higher
-npm -v     # should print 9.x.x or higher
+python --version    # should print Python 3.11.x or higher
+node -v             # should print v18.x.x or higher
+npm -v
 git --version
 ```
+
+> **Windows note:** If `python` is not found, try `python3`. During Python install, tick **"Add Python to PATH"**.
 
 ---
 
@@ -27,103 +33,103 @@ git --version
 The repo is **private**. You need two things:
 
 ### 1a. Collaborator invite
-Ask the repo owner (Salman) to add your GitHub username as a collaborator:
+Ask Salman to add your GitHub username:
 - GitHub → `hackherway-ps6` → Settings → Collaborators → Add people
-- You will get an email — accept the invite
+- Accept the email invite
 
 ### 1b. Personal Access Token (PAT)
-GitHub password won't work for git clone. You need a PAT.
+GitHub password won't work for `git clone`. Generate a PAT:
 
-1. GitHub → top-right avatar → **Settings**
+1. GitHub → avatar (top right) → **Settings**
 2. Left sidebar → **Developer settings**
 3. **Personal access tokens** → **Tokens (classic)**
 4. **Generate new token (classic)**
-5. Name it anything (e.g. `hackherway-laptop`)
-6. Set expiry: **30 days**
-7. Check scope: **repo** (full control of private repositories)
-8. Click **Generate token**
-9. **Copy it immediately** — you cannot see it again
+5. Name: `hackherway-laptop` · Expiry: 30 days · Scope: ✅ **repo**
+6. Click **Generate token**
+7. **Copy immediately** — you cannot see it again
 
-Save it somewhere safe (e.g. Notepad). You'll paste it as your password when Git asks.
+Save it in Notepad. You'll use it as the Git password.
 
 ---
 
 ## Step 2 — Clone the Repository
 
-Open PowerShell or Command Prompt:
-
 ```bash
 git clone https://github.com/Salman1310/hackherway-ps6.git
-```
-
-When prompted:
-```
-Username: <your GitHub username>
-Password: <paste your PAT here>
-```
-
-Then navigate into the project:
-```bash
 cd hackherway-ps6
 ```
 
----
-
-## Step 3 — Install Dependencies
-
-```bash
-cd web
-npm install
+When Git asks:
+```
+Username: <your GitHub username>
+Password: <paste your PAT>
 ```
 
-This installs all packages including Next.js, SQLite, AWS SDK, etc. Takes ~1–2 minutes first time.
+Save credentials so Git doesn't ask again:
+```bash
+git config --global credential.helper manager
+```
 
 ---
 
-## Step 4 — Set Up Environment Variables
+## Step 3 — Backend Setup (Python)
+
+### 3a. Create virtual environment
+
+```bash
+cd backend
+python -m venv .venv
+```
+
+### 3b. Activate virtual environment
+
+```bash
+# Windows (PowerShell or Command Prompt)
+.venv\Scripts\activate
+
+# Mac / Linux
+source .venv/bin/activate
+```
+
+You'll see `(.venv)` at the start of your terminal prompt. **Always activate before running backend commands.**
+
+### 3c. Install Python packages
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3d. Create backend `.env`
 
 ```bash
 copy .env.example .env
 ```
 
-Now open `.env` in Notepad (or any text editor) and fill in the values:
+Open `backend/.env` and fill in:
 
 ```env
-# AWS Bedrock — get these from your credentials.txt / AWS console
+# AWS Bedrock — from your credentials.txt or AWS console
 AWS_ACCESS_KEY_ID=<your key id>
 AWS_SECRET_ACCESS_KEY=<your secret key>
 AWS_SESSION_TOKEN=<your session token>
 AWS_REGION=us-east-1
 
-# Bedrock model — find exact ID in AWS Console → Bedrock → Model catalog
+# Find exact model ID: AWS Console → Bedrock → Model catalog → Claude Sonnet
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6-20250514-v1:0
 
-# MongoDB — not required, app uses SQLite locally
-MONGODB_URI=mongodb+srv://Hackathon:<password>@hackathon.jjcappv.mongodb.net/hackherway
+# SQLite — leave as default
+SQLITE_DB_PATH=./hackherway.db
 
-# ServiceNow — leave blank for now
-SERVICENOW_INSTANCE_URL=
-SERVICENOW_USERNAME=
-SERVICENOW_PASSWORD=
-
-# Teams webhook — leave blank for now
-TEAMS_WEBHOOK_URL=
-PUBLIC_BASE_URL=http://localhost:3000
-
-# Keep this true — uses local SQLite, skips cloud DB
-BYPASS_AUTH=true
+# Server port — leave as default
+PORT=8000
 ```
 
-> **Note:** `.env` is gitignored — it never gets pushed to GitHub. Each person sets it up manually.
+> `.env` is gitignored — never pushed to GitHub. Each person sets it up manually.
 
----
-
-## Step 5 — Seed the Local Database
-
-This creates `hackherway.db` (SQLite) with 4 demo users. Run once:
+### 3e. Seed the database
 
 ```bash
-npm run seed:sqlite
+python scripts/seed_sqlite.py
 ```
 
 Expected output:
@@ -133,14 +139,63 @@ Expected output:
   seeded: PRIYA003 — Priya Nair
   seeded: SAM004 — Sam Wilson
 
-Done. DB at: ...\hackherway-ps6\web\hackherway.db
+Done. DB at: ...\hackherway-ps6\backend\hackherway.db
 ```
 
 ---
 
-## Step 6 — Run the App
+## Step 4 — Frontend Setup (Node.js)
+
+Open a **second terminal** (keep the first one for the backend).
 
 ```bash
+cd hackherway-ps6/web
+npm install
+```
+
+### 4a. Create frontend `.env`
+
+```bash
+copy .env.example .env
+```
+
+Open `web/.env` — it only needs one value:
+
+```env
+BACKEND_URL=http://localhost:8000
+```
+
+> The frontend has **no AWS credentials**. All AI and database calls go through the backend.
+
+---
+
+## Step 5 — Run the Project
+
+You need **two terminals open at the same time**.
+
+### Terminal 1 — Backend
+
+```bash
+cd hackherway-ps6/backend
+.venv\Scripts\activate
+uvicorn src.main:app --reload --port 8000
+```
+
+Expected output:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+INFO:     Started server process
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+Verify it's running: open browser → `http://localhost:8000/health` → should show `{"status":"ok"}`
+
+### Terminal 2 — Frontend
+
+```bash
+cd hackherway-ps6/web
 npm run dev
 ```
 
@@ -156,9 +211,9 @@ Open browser → `http://localhost:3000`
 
 ---
 
-## Step 7 — Test Identity Verification
+## Step 6 — Test It Works
 
-Type one of these ACF2 IDs in the chat:
+Type any of these ACF2 IDs in the chat input:
 
 | ACF2 ID | Name | Team |
 |---------|------|------|
@@ -167,64 +222,94 @@ Type one of these ACF2 IDs in the chat:
 | `PRIYA003` | Priya Nair | Finance Analytics |
 | `SAM004` | Sam Wilson | TBD |
 
-App should respond with a personalised greeting from Claude (or fallback greeting if Bedrock credentials are not yet configured).
+You can also type naturally — e.g. `"My ID is RIYA001"` or `"What's an ACF2 ID?"` — the agent understands natural language.
+
+Expected: typing indicator appears → personalised greeting from Claude.
+
+Type `FAKE999` → hard block message (unknown ID).
 
 ---
 
 ## Pulling Updates (After First Setup)
 
-When the repo is updated, run:
+When the repo is updated:
 
 ```bash
 cd hackherway-ps6
 git pull origin main
-cd web
+```
+
+Then check if anything new needs to be installed:
+
+```bash
+# Backend — only if requirements.txt changed
+cd backend
+.venv\Scripts\activate
+pip install -r requirements.txt
+
+# Frontend — only if package.json changed
+cd ../web
 npm install
-npm run dev
 ```
 
-> Run `npm run seed:sqlite` again only if told to (when the user schema changes).
-
----
-
-## Troubleshooting
-
-### `npm install` fails with native addon error
-Ensure Node.js version is 18+. Run `node -v` to check.
-
-### Git asks for password on every pull
-Set up credential storage:
-```bash
-git config --global credential.helper manager
-```
-Then pull once and enter your PAT — it will be saved.
-
-### App loads but chat gives no response
-Check `.env` — make sure `BYPASS_AUTH=true` is set.
-
-### Bedrock error: invalid model identifier
-Open AWS Console → Bedrock → Model catalog → find Claude Sonnet → copy the exact Model ID → update `BEDROCK_MODEL_ID` in `.env` → restart `npm run dev`.
-
-### MongoDB EACCES / ETIMEDOUT errors in console
-Expected on company network — corporate firewall blocks Atlas port 27017. App uses SQLite locally and ignores MongoDB errors. Safe to ignore.
-
-### Port 3000 already in use
-```bash
-npm run dev -- -p 3001
-```
+Run the seed script again only if told to (when the user schema changes).
 
 ---
 
 ## Architecture (Quick Reference)
 
 ```
-Browser → Next.js (localhost:3000)
-             │
-             ├── /api/agent/message  ← ACF2 lookup (SQLite) + Claude greeting (Bedrock)
-             │
-             ├── SQLite (hackherway.db)  ← local file, no network needed
-             │
-             └── AWS Bedrock (Claude Sonnet)  ← via company AWS credentials
+Browser (port 3000)
+    │
+    ▼
+Next.js Frontend  ← UI only, no AWS credentials
+    │  proxies API calls
+    ▼
+Python Backend (port 8000)
+    ├── FastAPI + uvicorn
+    ├── Conversational Agent (Bedrock Claude Sonnet)
+    │     understands natural language, extracts ACF2 ID,
+    │     generates personalised responses
+    └── SQLite (hackherway.db)
+          local file, no network needed
 ```
 
-No MongoDB, no Docker, no additional services needed to run locally.
+---
+
+## Troubleshooting
+
+### `python` not found
+Try `python3` instead. Or reinstall Python and tick **"Add to PATH"** during setup.
+
+### `.venv\Scripts\activate` fails in PowerShell
+Run this once to allow scripts:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Then activate again.
+
+### Backend starts but chat gives no response
+Check that frontend `.env` has `BACKEND_URL=http://localhost:8000` and backend is actually running on port 8000.
+
+### Bedrock error: invalid model identifier
+AWS Console → Bedrock → Model catalog → find Claude Sonnet → copy exact Model ID → update `BEDROCK_MODEL_ID` in `backend/.env` → restart backend.
+
+### Bedrock still responds even with wrong credentials
+Correct — the agent has a hardcoded fallback greeting. Flow never breaks on Bedrock failure.
+
+### Port 8000 already in use
+```bash
+uvicorn src.main:app --reload --port 8001
+```
+Then update `BACKEND_URL=http://localhost:8001` in `web/.env`.
+
+### Port 3000 already in use
+```bash
+npm run dev -- -p 3001
+```
+
+### Git asks for password on every pull
+```bash
+git config --global credential.helper manager
+```
+Pull once, enter PAT — saved permanently.
