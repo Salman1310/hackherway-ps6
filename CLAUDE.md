@@ -111,7 +111,7 @@ Express Backend (backend/)
 |-------|-----------|-------|
 | Frontend | Next.js 16.2.4 (Turbopack), React 19, TypeScript | App Router |
 | Styling | Tailwind CSS v4 | `@theme inline` syntax, no tailwind.config.js |
-| Backend | Express 4, TypeScript, ts-node-dev | Port 8000 |
+| Backend | Python 3.11+, FastAPI, uvicorn | Port 8000 |
 | LLM | AWS Bedrock — Claude Sonnet 4.6 | `us.anthropic.claude-sonnet-4-6-*` |
 | Local DB | SQLite (`better-sqlite3`) | WAL mode, gitignored `.db` file |
 | Cloud DB | MongoDB Atlas M0 | Blocked by corporate firewall — unused in dev |
@@ -154,16 +154,18 @@ Express Backend (backend/)
 git clone https://github.com/Salman1310/hackherway-ps6.git
 cd hackherway-ps6
 
-# 2. Backend setup
+# 2. Backend setup (Python)
 cd backend
-npm install
-copy .env.example .env    # fill in AWS credentials
-npm run seed              # creates hackherway.db with 4 demo users
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+copy .env.example .env          # fill in AWS credentials + BEDROCK_MODEL_ID
+python scripts/seed_sqlite.py   # creates hackherway.db with 4 demo users
 
 # 3. Frontend setup
 cd ../web
 npm install
-copy .env.example .env    # set BACKEND_URL=http://localhost:8000
+copy .env.example .env          # set BACKEND_URL=http://localhost:8000
 ```
 
 ### Every run (two terminals)
@@ -171,7 +173,8 @@ copy .env.example .env    # set BACKEND_URL=http://localhost:8000
 **Terminal 1 — Backend:**
 ```bash
 cd backend
-npm run dev
+.venv\Scripts\activate
+uvicorn src.main:app --reload --port 8000
 # → Running on http://localhost:8000
 ```
 
@@ -272,6 +275,6 @@ See `ADR.md` for full decision log. Key ones:
 3. **Tailwind v4 syntax** — uses `@import "tailwindcss"` and `@theme inline {}`, NOT `tailwind.config.js`.
 4. **Next.js 16 App Router** — route handlers use `export async function POST(request: Request)`.
 5. **Two processes required** — backend on 8000, frontend on 3000. Both must be running.
-6. **SQLite db lives in `backend/hackherway.db`** — gitignored, seeded per machine with `npm run seed`.
+6. **SQLite db lives in `backend/hackherway.db`** — gitignored, seeded per machine with `python scripts/seed_sqlite.py`.
 7. **Agent intent detection uses Bedrock** — with regex fallback if Bedrock fails.
 8. **Session state lives in frontend** — `SessionContext.tsx`. Backend is stateless per request.
