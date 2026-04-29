@@ -9,7 +9,7 @@ let _db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (!_db) {
     _db = new Database(DB_PATH);
-    _db.pragma('journal_mode = WAL'); // better concurrent read performance
+    _db.pragma('journal_mode = WAL');
     initSchema(_db);
   }
   return _db;

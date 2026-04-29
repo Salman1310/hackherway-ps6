@@ -1,12 +1,12 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
-  type Message as BedrockMessage,
+  type Message,
 } from '@aws-sdk/client-bedrock-runtime';
 
 let _client: BedrockRuntimeClient | null = null;
 
-function getClient(): BedrockRuntimeClient {
+export function getClient(): BedrockRuntimeClient {
   if (!_client) {
     _client = new BedrockRuntimeClient({
       region: process.env.AWS_REGION ?? 'us-east-1',
@@ -22,21 +22,19 @@ function getClient(): BedrockRuntimeClient {
   return _client;
 }
 
-const MODEL_ID: string =
+export const MODEL_ID: string =
   process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
 
 export async function converse(
   systemPrompt: string,
-  messages: BedrockMessage[],
+  messages: Message[],
+  maxTokens = 512,
 ): Promise<string> {
   const command = new ConverseCommand({
     modelId: MODEL_ID,
     system: [{ text: systemPrompt }],
     messages,
-    inferenceConfig: {
-      maxTokens: 512,
-      temperature: 0.7,
-    },
+    inferenceConfig: { maxTokens, temperature: 0.7 },
   });
 
   const response = await getClient().send(command);
