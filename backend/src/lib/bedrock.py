@@ -25,6 +25,10 @@ def get_client():
 
 
 def converse(system_prompt: str, messages: List[dict], max_tokens: int = 512) -> str:
+    """
+    Simple text-in/text-out Bedrock call (no tools).
+    Used by non-agent helpers that need a one-shot LLM response.
+    """
     response = get_client().converse(
         modelId=MODEL_ID,
         system=[{"text": system_prompt}],
@@ -35,3 +39,36 @@ def converse(system_prompt: str, messages: List[dict], max_tokens: int = 512) ->
     if content_blocks and "text" in content_blocks[0]:
         return content_blocks[0]["text"]
     raise ValueError("No text output from Bedrock")
+
+
+def converse_with_tools(
+    system_prompt: str,
+    messages: List[dict],
+    tool_specs: List[dict],
+    max_tokens: int = 1024,
+) -> dict:
+    """
+    Call Bedrock Converse API with tool definitions.
+
+    Returns the raw response dict from Bedrock. The caller is responsible
+    for the tool-use loop — inspecting stopReason, executing tools, and
+    appending tool_result messages before calling again.
+
+    Args:
+        system_prompt: The system instructions for the model.
+        messages:      Conversation history in Bedrock message format.
+        tool_specs:    List of tool dicts using Bedrock's toolSpec schema.
+        max_tokens:    Maximum tokens for the response.
+
+    Returns:
+        Raw Bedrock Converse response dict with keys:
+          output.message.content  — list of text / toolUse blocks
+          stopReason              — "end_turn" | "tool_use" | "max_tokens"
+    """
+    return get_client().converse(
+        modelId=MODEL_ID,
+        system=[{"text": system_prompt}],
+        messages=messages,
+        toolConfig={"tools": tool_specs},
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
+    )
