@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { getDb } from '@/lib/sqlite';
 import { converse } from '@/lib/bedrock';
-import { MOCK_EMPLOYEES } from '@/lib/mockData';
 import type { SessionState } from '@/lib/types';
 
 const HARD_BLOCK =
@@ -36,34 +35,32 @@ export async function POST(request: Request) {
   }
 }
 
+type UserRow = {
+  acf2_id: string;
+  name: string;
+  team: string;
+  manager: string;
+  dept: string;
+  employment_type: string;
+};
+
 async function handleAcf2Verification(content: string) {
   const acf2_id = content.trim().toUpperCase();
 
-  // 1. Mock data shortcut — skip MongoDB entirely when BYPASS_AUTH=true
-  let employee: Record<string, string> | null = null;
-  if (process.env.BYPASS_AUTH === 'true') {
-    const mock = MOCK_EMPLOYEES[acf2_id];
-    if (mock) employee = mock as unknown as Record<string, string>;
-  } else {
-    // Try MongoDB Atlas (production path)
-    try {
-      const client = await clientPromise;
-      const db = client.db('hackherway');
-      const doc = await db.collection('users').findOne({ acf2_id });
-      if (doc) {
-        const { _id: _, ...rest } = doc as Record<string, unknown> & { _id: unknown };
-        employee = rest as Record<string, string>;
-      }
-    } catch (dbErr) {
-      console.warn('[MongoDB] Unavailable:', dbErr);
-    }
+  // Lookup user in SQLite (fast, local, no network)
+  let employee: UserRow | null = null;
+  try {
+    const db = getDb();
+    employee = db.prepare('SELECT * FROM users WHERE acf2_id = ?').get(acf2_id) as UserRow ?? null;
+  } catch (dbErr) {
+    console.error('[SQLite]', dbErr);
   }
 
   if (!employee) {
     return NextResponse.json({ reply: HARD_BLOCK });
   }
 
-  // 3. Generate personalised Bedrock greeting
+  // Generate personalised Bedrock greeting
   const systemPrompt = `You are an AI-powered access request assistant for Sun Life Financial.
 You are warm, professional, and concise — like a helpful IT colleague.
 The user has just verified their identity. Greet them by first name, acknowledge their team,
@@ -86,7 +83,6 @@ Please produce the personalised greeting now.`;
     ]);
   } catch (bedrockErr) {
     console.error('[Bedrock]', bedrockErr);
-    // Graceful fallback — no Bedrock dependency for demo
     reply = `Welcome, ${employee.name}! I can see you're joining the ${employee.team} team. Let me help you get all the right access set up — this should only take a few minutes.`;
   }
 
