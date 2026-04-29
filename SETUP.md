@@ -149,7 +149,7 @@ Done. DB at: ...\hackherway-ps6\backend\hackherway.db
 Open a **second terminal** (keep the first one for the backend).
 
 ```bash
-cd hackherway-ps6/web
+cd hackherway-ps6/frontend
 npm install
 ```
 
@@ -159,7 +159,7 @@ npm install
 copy .env.example .env
 ```
 
-Open `web/.env` — it only needs one value:
+Open `frontend/.env` — it only needs one value:
 
 ```env
 BACKEND_URL=http://localhost:8000
@@ -195,7 +195,7 @@ Verify it's running: open browser → `http://localhost:8000/health` → should 
 ### Terminal 2 — Frontend
 
 ```bash
-cd hackherway-ps6/web
+cd hackherway-ps6/frontend
 npm run dev
 ```
 
@@ -217,12 +217,11 @@ Type any of these ACF2 IDs in the chat input:
 
 | ACF2 ID | Name | Team |
 |---------|------|------|
-| `RIYA001` | Riya Sharma | Payments Backend |
-| `JOHN002` | John Mathews | Cloud Infrastructure |
-| `PRIYA003` | Priya Nair | Finance Analytics |
-| `SAM004` | Sam Wilson | TBD |
+| `ARUN01` | Arun Mehta | Cloud Infrastructure |
+| `NEHA02` | Neha Kapoor | Finance Analytics |
+| `SARA03` | Sara Chen | TBD |
 
-You can also type naturally — e.g. `"My ID is RIYA001"` or `"What's an ACF2 ID?"` — the agent understands natural language.
+You can also type naturally — e.g. `"My ID is ARUN01"` or `"What's an ACF2 ID?"` — the agent understands natural language.
 
 Expected: typing indicator appears → personalised greeting from Claude.
 
@@ -248,7 +247,7 @@ cd backend
 pip install -r requirements.txt
 
 # Frontend — only if package.json changed
-cd ../web
+cd ../frontend
 npm install
 ```
 
@@ -301,7 +300,7 @@ Correct — the agent has a hardcoded fallback greeting. Flow never breaks on Be
 ```bash
 uvicorn src.main:app --reload --port 8001
 ```
-Then update `BACKEND_URL=http://localhost:8001` in `web/.env`.
+Then update `BACKEND_URL=http://localhost:8001` in `frontend/.env`.
 
 ### Port 3000 already in use
 ```bash
