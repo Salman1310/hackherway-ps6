@@ -1,11 +1,33 @@
 'use client';
 
-import { Plus, Clock, History, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus, Clock, History, X, MessageSquare } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
+
+type Conversation = {
+  id: string;
+  acf2_id: string;
+  created_at: number;
+  updated_at: number;
+};
 
 export default function Sidebar({ onClose }: { onClose: () => void }) {
   const { session } = useSession();
   const acf2Verified = !!session.acf2_id;
+
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!session.acf2_id) return;
+
+    setLoadingHistory(true);
+    fetch(`/api/conversations?acf2_id=${session.acf2_id}`)
+      .then((r) => r.json())
+      .then((data) => setConversations(data.conversations ?? []))
+      .catch(() => setConversations([]))
+      .finally(() => setLoadingHistory(false));
+  }, [session.acf2_id]);
 
   return (
     <div className="flex flex-col h-full bg-sl-dark border-r border-white/10">
@@ -41,11 +63,8 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
           Recent Requests
         </div>
 
-        {acf2Verified ? (
-          /* Populated in Phase 2 — MongoDB fetch by acf2_id */
-          <p className="text-white/30 text-xs px-2">Loading history...</p>
-        ) : (
-          /* Empty state — no ACF2 ID yet */
+        {!acf2Verified ? (
+          /* Not verified yet */
           <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
             <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
               <History className="w-5 h-5 text-white/20" />
@@ -54,6 +73,35 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
               Enter your ACF2 ID to load your request history
             </p>
           </div>
+        ) : loadingHistory ? (
+          /* Fetching */
+          <p className="text-white/30 text-xs px-2">Loading history...</p>
+        ) : conversations.length === 0 ? (
+          /* Verified but no past conversations */
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
+            <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-white/20" />
+            </div>
+            <p className="text-white/30 text-xs leading-relaxed">
+              No previous requests found
+            </p>
+          </div>
+        ) : (
+          /* Conversation list */
+          <ul className="space-y-1">
+            {conversations.map((conv) => (
+              <li key={conv.id}>
+                <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 transition-colors group">
+                  <p className="text-white/70 text-xs font-medium truncate group-hover:text-white transition-colors">
+                    Request · {conv.id.slice(0, 8)}
+                  </p>
+                  <p className="text-white/30 text-[10px] mt-0.5">
+                    {new Date(conv.updated_at).toLocaleDateString()}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
