@@ -15,7 +15,7 @@ INTENT_SYSTEM_PROMPT = """You are an AI access request assistant for Sun Life Fi
 Your current goal is to collect the user's ACF2 ID to verify their identity.
 
 ACF2 is Sun Life's identity and access management system. Every employee has a unique ACF2 ID
-(e.g. RIYA001, JOHN002). Employees can find it in their:
+(e.g. ARUN01, NEHA02). Employees can find it in their:
 - Welcome email from HR
 - Employee badge
 - By contacting IT Help Desk

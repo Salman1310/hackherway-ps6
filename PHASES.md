@@ -120,7 +120,7 @@ Stretch   → RetellAI Voice Layer
 | Inject full SQLite schema into agent system prompt design | Agent needs schema awareness for SQL generation |
 | Create mock APIs: Workday, AD/LDAP, Jira, SAM | Workday returns employee record by ACF2 ID. Others return success responses for provisioning |
 | Build backend logging utility | Color-coded prefixes: `[AGENT]`, `[BEDROCK]`, `[MCP]`, `[MOCK]`, `[TEAMS]`, `[SERVICENOW]`. Log every LLM call, tool call, MCP query, mock API hit, and error |
-| Create `.env.example` for backend | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `BEDROCK_MODEL_ID`, `SQLITE_DB_PATH`, `PORT` |
+| Create `.env.example` for backend | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `BEDROCK_MODEL_ID`, `SQLITE_DB_PATH`, `TEAMS_WEBHOOK_URL`, `PORT` |
 | Wire `BYPASS_AUTH=true` flag | Hardcoded session context for dev/demo |
 
 **Exit criteria:**

@@ -8,33 +8,25 @@ export type WorkdayEmployee = {
 };
 
 export const MOCK_EMPLOYEES: Record<string, WorkdayEmployee> = {
-  RIYA001: {
-    acf2_id: 'RIYA001',
-    name: 'Riya Sharma',
-    team: 'Payments Backend',
-    manager: 'Anjali Singh',
-    dept: 'Technology',
-    employment_type: 'full-time',
-  },
-  JOHN002: {
-    acf2_id: 'JOHN002',
-    name: 'John Mathews',
+  ARUN01: {
+    acf2_id: 'ARUN01',
+    name: 'Arun Mehta',
     team: 'Cloud Infrastructure',
     manager: 'Raj Kumar',
     dept: 'Technology',
     employment_type: 'full-time',
   },
-  PRIYA003: {
-    acf2_id: 'PRIYA003',
-    name: 'Priya Nair',
+  NEHA02: {
+    acf2_id: 'NEHA02',
+    name: 'Neha Kapoor',
     team: 'Finance Analytics',
     manager: 'Deepa Menon',
     dept: 'Finance',
     employment_type: 'contract',
   },
-  SAM004: {
-    acf2_id: 'SAM004',
-    name: 'Sam Wilson',
+  SARA03: {
+    acf2_id: 'SARA03',
+    name: 'Sara Chen',
     team: 'TBD',
     manager: 'TBD',
     dept: 'TBD',

@@ -22,18 +22,20 @@ hackherway-ps6/
 │   │   ├── types.py           ← Pydantic models (SessionState, MessageRequest, etc.)
 │   │   ├── agent/
 │   │   │   └── index.py       ← Conversational agent — tool-use loop with Bedrock
-│   │   ├── lib/
+│   │   │   ├── lib/
 │   │   │   ├── bedrock.py     ← AWS Bedrock client + converse() + tool-use support
-│   │   │   ├── sqlite.py      ← SQLite MCP client wrapper (NOT direct sqlite3)
+│   │   │   ├── sqlite.py      ← Direct sqlite3 for REST endpoints only (NOT agent)
 │   │   │   └── logger.py      ← Color-coded logging utility ([AGENT], [BEDROCK], etc.)
+│   │   ├── mock/
+│   │   │   ├── workday.py     ← Mock Workday API (GET /mock/workday/employee/{acf2_id})
+│   │   │   ├── ad.py          ← Mock AD/LDAP provisioning (POST /mock/ad/provision)
+│   │   │   ├── jira.py        ← Mock Jira provisioning (POST /mock/jira/provision)
+│   │   │   └── sam.py         ← Mock SAM provisioning (POST /mock/sam/provision/*)
 │   │   └── routes/
 │   │       ├── agent.py       ← POST /api/agent/message
 │   │       └── conversations.py ← GET /api/conversations
-│   ├── mock/
-│   │   ├── workday.py         ← Mock Workday API (employee lookup by ACF2 ID)
-│   │   ├── ad.py              ← Mock AD/LDAP provisioning
-│   │   ├── jira.py            ← Mock Jira provisioning
-│   │   └── sam.py             ← Mock SAM provisioning
+│   ├── mcp_server/
+│   │   └── sqlite_server.py   ← FastMCP SQLite server (query_db + execute_db tools)
 │   ├── scripts/
 │   │   └── seed_sqlite.py     ← Seeds 3 demo users + all tables into SQLite
 │   ├── .env.example           ← AWS creds, Bedrock model ID, DB path
@@ -209,6 +211,10 @@ All tables accessed via SQLite MCP only (no direct sqlite3 calls):
 | `AWS_REGION` | Yes | `us-east-1` |
 | `BEDROCK_MODEL_ID` | Yes | Find in AWS Console → Bedrock → Model catalog |
 | `SQLITE_DB_PATH` | No | Default: `./hackherway.db` |
+| `SERVICENOW_INSTANCE_URL` | Phase 5+ | ServiceNow instance URL |
+| `SERVICENOW_USERNAME` | Phase 5+ | ServiceNow username |
+| `SERVICENOW_PASSWORD` | Phase 5+ | ServiceNow password |
+| `TEAMS_WEBHOOK_URL` | Phase 5+ | Teams Incoming Webhook URL |
 | `PORT` | No | Default: `8000` |
 
 ### `frontend/.env` (frontend only)
@@ -217,7 +223,6 @@ All tables accessed via SQLite MCP only (no direct sqlite3 calls):
 |----------|----------|-------|
 | `BACKEND_URL` | Yes | `http://localhost:8000` |
 | `PUBLIC_BASE_URL` | Phase 5+ | `http://localhost:3000` (or ngrok URL) |
-| `TEAMS_WEBHOOK_URL` | Phase 5+ | From Teams channel setup |
 
 ---
 

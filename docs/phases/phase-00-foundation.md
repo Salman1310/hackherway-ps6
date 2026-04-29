@@ -1,75 +1,210 @@
-# Phase 00 — Foundation
-
-## Why This Phase Exists
-
-Every phase from Phase 2 onwards makes real backend calls: database lookups, mock API calls, Bedrock agent invocations. Without a seeded database and running mock APIs, Phase 2 would fail on the first line of code.
-
-Phase 0 is the plumbing. No user-facing features. Pure infrastructure so every subsequent phase has something stable to build on.
-
-## Build Sequence Note
-
-Phase 1 (UI Shell) was built before Phase 0. That was safe because Phase 1 has zero backend calls — it renders hardcoded content only. Phase 0 was completed retroactively before Phase 2 started, which is when the first real backend dependency appears.
+# Phase 0 — Foundation
 
 ## What Was Built
 
 | Deliverable | Location | Purpose |
-|---|---|---|
-| Folder structure | `agent/`, `mock-apis/`, `schema/`, `orchestrator/` | Establishes repo layout for all future phases |
-| Workday mock API | `web/src/app/api/mock/workday/employee/[acf2_id]/route.ts` | Simulates Workday identity lookup |
-| SAM mock APIs | `web/src/app/api/mock/sam/provision/...` | Simulates NPE and GitHub Copilot provisioning |
-| AD mock API | `web/src/app/api/mock/ad/provision/route.ts` | Simulates Active Directory user creation |
-| Jira mock API | `web/src/app/api/mock/jira/provision/route.ts` | Simulates Jira project access provisioning |
-| `config.ts` | `web/src/lib/config.ts` | Central env var exports for all API routes |
-| `mockData.ts` | `web/src/lib/mockData.ts` | Single source of truth for 4 demo employee records |
-| `.env.example` | `web/.env.example` | Documents all required environment variables |
-| SQLite DB + schema | `web/src/lib/sqlite.ts` | Local database — users, conversations, messages, ritm_requests tables |
-| SQLite seed script | `web/scripts/seed-sqlite.mjs` | Seeds 4 demo users into SQLite via upsert |
-| Atlas seed script | `web/scripts/seed.mjs` | Seeds 4 demo users into MongoDB Atlas (cloud path, optional) |
-| GitHub repo | `Salman1310/hackherway-ps6` (private) | Remote for collaboration between personal and company laptops |
-| `SETUP.md` | repo root | Full onboarding guide for any new machine |
+|-------------|----------|---------|
+| Full SQLite schema (11 tables) | `backend/scripts/seed_sqlite.py` | All tables created with IF NOT EXISTS |
+| 3 demo users seeded | `backend/scripts/seed_sqlite.py` | ARUN01, NEHA02, SARA03 |
+| 8 designation templates | `backend/scripts/seed_sqlite.py` | Context stuffing source for agent |
+| Dangerous combinations table | `backend/scripts/seed_sqlite.py` | 5 entries — Privilege Guard source |
+| Privilege edges for NEHA02 | `backend/scripts/seed_sqlite.py` | finance_data_read + prod_db_read |
+| Approval events for Risk Scorer | `backend/scripts/seed_sqlite.py` | 10 baseline + 5 ARUN01 anomalies |
+| Approver routing (all items) | `backend/scripts/seed_sqlite.py` | All → Teams webhook |
+| SQLite MCP Server | `backend/mcp_server/sqlite_server.py` | FastMCP — query_db + execute_db tools |
+| Color-coded logging utility | `backend/src/lib/logger.py` | [AGENT] [BEDROCK] [MCP] [MOCK] [TEAMS] etc. |
+| Mock Workday API | `backend/src/mock/workday.py` | GET /mock/workday/employee/{acf2_id} |
+| Mock AD/LDAP API | `backend/src/mock/ad.py` | POST /mock/ad/provision |
+| Mock Jira API | `backend/src/mock/jira.py` | POST /mock/jira/provision |
+| Mock SAM API | `backend/src/mock/sam.py` | POST /mock/sam/provision/* |
+| FastAPI startup logging | `backend/src/main.py` | Logs routes on startup |
+| Stale folder cleanup | root | Removed agent/, mock-apis/, orchestrator/, schema/ |
 
-## Architecture Decisions (What Changed from Original Plan)
+## Why It Was Built
 
-### MongoDB Atlas M0 instead of Supabase + pgvector
-Original plan used Supabase with pgvector for RAG embeddings. Replaced with:
-- **MongoDB Atlas M0** (free tier) — cloud document store
-- **AWS Bedrock Claude Sonnet 4.6** — replaces Gemini/Ollama as sole LLM provider
-- **LLM context stuffing** — all 8 persona templates injected into system prompt, eliminating the need for vector embeddings entirely
+Phase 0 establishes the full infrastructure foundation before any agent logic is built. Without this phase:
+- Agent has no DB to query (missing tables)
+- Risk Scorer has no historical data to score against
+- Privilege Guard has no dangerous_combinations or privilege_edges to check
+- Demo has wrong users (old RIYA001/JOHN002 data)
+- No logging — impossible to debug agent/MCP/Bedrock interactions
+- No mock APIs — Orchestrator (Phase 5) has nothing to call
 
-### SQLite for local persistence
-MongoDB Atlas is blocked by corporate firewall (EACCES on port 27017). Added SQLite (`better-sqlite3`) as a local-first database:
-- Runs on every machine with zero network dependency
-- `hackherway.db` created locally by `npm run seed:sqlite`
-- File is gitignored — each machine has its own copy
-- MongoDB Atlas remains as the production/cloud path for when firewall allows
+## How It Works
 
-### AWS Bedrock instead of Gemini + Ollama
-Company laptops have AWS credentials via `credentials.txt`. All LLM calls go through AWS Bedrock:
-- Model: Claude Sonnet 4.6 (`BEDROCK_MODEL_ID` env var)
-- Region: `us-east-1`
-- Auth: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_SESSION_TOKEN`
+### Database Schema
 
-### Mocks as Next.js API routes, not standalone server
-Original plan had a separate Express server in `mock-apis/`. Chose Next.js routes instead — single `npm run dev` starts everything, no port management, no separate process.
+11 tables, all created with `IF NOT EXISTS` so the script is idempotent:
 
-### `BYPASS_AUTH=true` skips MongoDB entirely
-When `BYPASS_AUTH=true` in `.env`, the API route uses mock data directly without attempting any MongoDB connection. No network call, no timeout, instant response.
+```
+users                 — ACF2 ID, name, team, manager, dept, employment_type
+designations          — 8 role templates with mandatory/optional access items (JSON arrays)
+access_requests       — submitted requests with final bundle, risk score, status
+approval_events       — per-item approval state (pending/approved/rejected)
+approver_routing      — access_item → Teams webhook URL
+audit_log             — append-only trail of all state changes
+privilege_edges       — user's existing permissions (Privilege Guard source)
+dangerous_combinations— permission combos that trigger warnings
+template_drafts       — no-match flow draft templates (Phase 6)
+conversations         — chat sessions per ACF2 ID
+messages              — individual chat messages
+```
 
-## Demo Users (Pre-Seeded)
+### Demo User Scenarios
 
-| ACF2 ID | Name | Team | Dept | Type |
-|---------|------|------|------|------|
-| `RIYA001` | Riya Sharma | Payments Backend | Technology | Full-time |
-| `JOHN002` | John Mathews | Cloud Infrastructure | Technology | Full-time |
-| `PRIYA003` | Priya Nair | Finance Analytics | Finance | Contract |
-| `SAM004` | Sam Wilson | TBD | TBD | Full-time |
+| ACF2 ID | Scenario | Key Seed Data |
+|---------|----------|---------------|
+| ARUN01  | Happy path + Risk Scorer ~78 | 5 anomalous approval_events (2 off-hours, 3 rejected, 1 escalated) |
+| NEHA02  | Privilege Guard fires | privilege_edges: finance_data_read + prod_db_read |
+| SARA03  | No-match → template generation | No matched designation template |
 
-## Exit Criteria
+### Risk Scorer Seed Data (ARUN01)
 
-| Check | Result |
-|---|---|
-| `GET /api/mock/workday/employee/RIYA001` → 200 with employee record | PASS |
-| `GET /api/mock/workday/employee/FAKE999` → 404 with error | PASS |
-| `npm run seed:sqlite` creates `hackherway.db` with 4 users | PASS |
-| `npm run build` in `web/` compiles clean (TypeScript strict) | PASS |
-| `BYPASS_AUTH=true` → zero MongoDB connection attempts | PASS |
+The 15 seeded approval_events produce a risk score of ~78 for ARUN01 because:
+
+| Signal | Value | Baseline |
+|--------|-------|---------|
+| Off-hours rate | 2/5 = 40% | ~0% |
+| Rejection rate | 3/5 = 60% | ~10% |
+| Re-request velocity | prod_db_write twice in 3 days | Rare |
+| Escalation | 1 manager override | None in baseline |
+| Item deviation | prod_db_write is unusual for DevOps role | Not in standard template |
+
+### Privilege Guard Seed Data (NEHA02)
+
+```
+NEHA02 existing privileges (privilege_edges):
+  finance_data_read   — granted 2025-01-15 by Deepa Menon
+  prod_db_read        — granted 2025-03-01 by Deepa Menon
+
+Finance Analyst template optional items:
+  finance_systems_write
+  external_reporting_api  ← triggers danger_003
+
+Dangerous combination danger_003:
+  finance_data_read + external_reporting_api = HIGH
+  Reason: Finance data exfiltration vector to external systems
+```
+
+### SQLite MCP Server
+
+```bash
+# Start the MCP server (from backend/ folder)
+python -m mcp_server.sqlite_server
+
+# The server exposes two tools via MCP protocol:
+#   query_db(sql)   — SELECT only
+#   execute_db(sql) — INSERT / UPDATE (blocks DROP/TRUNCATE/ALTER)
+```
+
+The agent (Phase 1+) connects to this server via stdio and generates SQL using Bedrock's tool-use.
+
+### Mock APIs
+
+All mock routes are mounted on the FastAPI app:
+
+```
+GET  /mock/workday/employee/{acf2_id}   → employee record or 404
+POST /mock/ad/provision                 → {"success": true, "reference_id": "AD-xxxx"}
+POST /mock/jira/provision               → {"success": true, "reference_id": "JIRA-xxxx"}
+POST /mock/sam/provision/github-copilot → {"success": true, "reference_id": "SAM-COP-xxxx"}
+POST /mock/sam/provision/non-primary-id → {"success": true, "reference_id": "SAM-NPI-xxxx"}
+```
+
+### Logging
+
+All backend modules import from `backend/src/lib/logger.py`:
+
+```python
+from src.lib.logger import agent, bedrock, mcp, mock, teams, snow, orch, error
+
+agent("User ARUN01 message received")
+bedrock("tool_call → query_db")
+mcp("SQL: SELECT * FROM users WHERE acf2_id = 'ARUN01' → 1 row")
+mock("Workday lookup OK → Arun Mehta (Cloud Infrastructure)")
+```
+
+## How to Test
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env  # fill in AWS creds
+python scripts/seed_sqlite.py
+```
+
+Expected output:
+```
+Users:
+  seeded: ARUN01 - Arun Mehta
+  seeded: NEHA02 - Neha Kapoor
+  seeded: SARA03 - Sara Chen
+
+Designation templates:
+  template: backend_developer
+  template: devops_cloud_engineer
+  template: data_analyst
+  template: finance_analyst
+  template: intern
+  template: manager_team_lead
+  template: auditor
+  template: contractor
+
+Dangerous combinations:
+  [CRITICAL] prod_db_write + deploy_pipeline_write
+  [HIGH] prod_db_read + deploy_pipeline_write
+  [HIGH] finance_data_read + external_reporting_api
+  [CRITICAL] finance_systems_write + external_reporting_api
+  [HIGH] npe_environment + prod_db_write
+
+Privilege edges (NEHA02):
+  edge: NEHA02 → finance_data_read
+  edge: NEHA02 → prod_db_read
+
+Approver routing: 37 access items → Teams webhook
+
+Approval events:
+  baseline (normal): 10 events (HIST001-006, devops role)
+  ARUN01 anomalies:  5 events (2 off-hours, 3 rejections → score ~78)
+
+Done. DB at: ...\hackherway-ps6\backend\hackherway.db
+```
+
+Start the backend and verify mock Workday:
+
+```bash
+uvicorn src.main:app --reload --port 8000
+# Open: http://localhost:8000/mock/workday/employee/ARUN01
+```
+
+Expected response:
+```json
+{
+  "status": "found",
+  "employee": {
+    "acf2_id": "ARUN01",
+    "name": "Arun Mehta",
+    "team": "Cloud Infrastructure",
+    "manager": "Raj Kumar",
+    ...
+  }
+}
+```
+
+Verify MCP server standalone:
+
+```bash
+python -m mcp_server.sqlite_server
+# Server starts — ready for MCP client connections
+# Agent will connect to this in Phase 1
+```
+
+## Decisions Made
+
+- **SQLite MCP server built with FastMCP** (not official `mcp-server-sqlite` npm package) — pure Python, no Node.js dependency in backend, fully MCP protocol compliant. Registered as ADR candidate.
+- **Seed script uses direct sqlite3** — utility scripts (not application code) are exempt from the "MCP only" rule. Application agent code will use MCP exclusively.
+- **Mocks placed in `backend/src/mock/`** — follows existing `backend/src/routes/` pattern for clean relative imports. Matches FastAPI router structure.
+- **All 37 access items pre-routed** — approver_routing seeded for all items upfront so Phase 5 Teams card integration has routing data ready.
+- **Stale folders removed** — `agent/`, `mock-apis/`, `orchestrator/`, `schema/` from old TypeScript architecture deleted. Only `frontend/`, `backend/`, `docs/` remain.

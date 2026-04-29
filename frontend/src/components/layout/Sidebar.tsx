@@ -16,17 +16,14 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
   const acf2Verified = !!session.acf2_id;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     if (!session.acf2_id) return;
 
-    setLoadingHistory(true);
     fetch(`/api/conversations?acf2_id=${session.acf2_id}`)
       .then((r) => r.json())
       .then((data) => setConversations(data.conversations ?? []))
-      .catch(() => setConversations([]))
-      .finally(() => setLoadingHistory(false));
+      .catch(() => setConversations([]));
   }, [session.acf2_id]);
 
   return (
@@ -73,9 +70,6 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
               Enter your ACF2 ID to load your request history
             </p>
           </div>
-        ) : loadingHistory ? (
-          /* Fetching */
-          <p className="text-white/30 text-xs px-2">Loading history...</p>
         ) : conversations.length === 0 ? (
           /* Verified but no past conversations */
           <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
@@ -93,7 +87,7 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
               <li key={conv.id}>
                 <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 transition-colors group">
                   <p className="text-white/70 text-xs font-medium truncate group-hover:text-white transition-colors">
-                    Request · {conv.id.slice(0, 8)}
+                    Request - {conv.id.slice(0, 8)}
                   </p>
                   <p className="text-white/30 text-[10px] mt-0.5">
                     {new Date(conv.updated_at).toLocaleDateString()}
@@ -107,7 +101,7 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-white/10">
-        <p className="text-white/20 text-[10px] text-center tracking-wide">HackHERway 2025 · PS6</p>
+        <p className="text-white/20 text-[10px] text-center tracking-wide">HackHERway 2025 - PS6</p>
       </div>
     </div>
   );

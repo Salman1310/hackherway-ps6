@@ -8,6 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes.agent import router as agent_router
 from .routes.conversations import router as conversations_router
+from .mock.workday import router as workday_router
+from .mock.ad import router as ad_router
+from .mock.jira import router as jira_router
+from .mock.sam import router as sam_router
+from .lib.logger import log
 
 app = FastAPI(title="HackHERway PS6 — Backend Agent")
 
@@ -19,10 +24,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(agent_router, prefix="/api/agent")
+# ── API routes ────────────────────────────────────────────────────────────────
+app.include_router(agent_router,         prefix="/api/agent")
 app.include_router(conversations_router, prefix="/api")
+
+# ── Mock API routes (Phase 0 — used by Orchestrator in Phase 5) ──────────────
+app.include_router(workday_router, prefix="/mock/workday")
+app.include_router(ad_router,      prefix="/mock/ad")
+app.include_router(jira_router,    prefix="/mock/jira")
+app.include_router(sam_router,     prefix="/mock/sam")
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    log("AGENT", "HackHERway PS6 backend started")
+    log("AGENT", "Routes: /api/agent/message, /api/conversations")
+    log("MOCK",  "Routes: /mock/workday/employee/{acf2_id}, /mock/ad/provision, /mock/jira/provision, /mock/sam/provision/*")
