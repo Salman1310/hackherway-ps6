@@ -39,25 +39,24 @@ export async function POST(request: Request) {
 async function handleAcf2Verification(content: string) {
   const acf2_id = content.trim().toUpperCase();
 
-  // 1. Try MongoDB Atlas
+  // 1. Mock data shortcut — skip MongoDB entirely when BYPASS_AUTH=true
   let employee: Record<string, string> | null = null;
-  try {
-    const client = await clientPromise;
-    const db = client.db('hackherway');
-    const doc = await db.collection('users').findOne({ acf2_id });
-    if (doc) {
-      // Strip MongoDB _id before using
-      const { _id: _, ...rest } = doc as Record<string, unknown> & { _id: unknown };
-      employee = rest as Record<string, string>;
-    }
-  } catch (dbErr) {
-    console.warn('[MongoDB] Unavailable, falling back to mock data:', dbErr);
-  }
-
-  // 2. Fall back to mock data when DB is unavailable or BYPASS_AUTH is set
-  if (!employee && process.env.BYPASS_AUTH === 'true') {
+  if (process.env.BYPASS_AUTH === 'true') {
     const mock = MOCK_EMPLOYEES[acf2_id];
     if (mock) employee = mock as unknown as Record<string, string>;
+  } else {
+    // Try MongoDB Atlas (production path)
+    try {
+      const client = await clientPromise;
+      const db = client.db('hackherway');
+      const doc = await db.collection('users').findOne({ acf2_id });
+      if (doc) {
+        const { _id: _, ...rest } = doc as Record<string, unknown> & { _id: unknown };
+        employee = rest as Record<string, string>;
+      }
+    } catch (dbErr) {
+      console.warn('[MongoDB] Unavailable:', dbErr);
+    }
   }
 
   if (!employee) {
