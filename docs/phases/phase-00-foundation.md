@@ -1,220 +1,216 @@
-# Phase 0 — Foundation
+# Phase 0 - Foundation
 
-> **Schema rework planned (not yet built).** This document describes Phase 0 as it shipped: 11 tables with `designations` carrying access items as JSON arrays. A schema rework is queued before Phase 2 begins:
->
-> - **Drop:** `designations.mandatory_items` and `designations.optional_items` JSON columns
-> - **Add:** `user_designations(acf2_id PK, designation_id, assigned_at, source)` — separate user→role mapping table (1 user → 1 role)
-> - **Add:** `role_access_items(designation_id, access_item, mandatory, description, owner_team, servicenow_catalog_item_id)` — normalized per-item rows; ~80 rows total. Carries ServiceNow catalog item IDs for Phase 5 SN integration.
-> - **Re-seed:** delete current `hackherway.db`, re-run seed script. No real data exists yet — safe.
->
-> Phase 1 code uses only the `users` table — unaffected by this rework.
-> See `CLAUDE.md` § Database Schema for the target shape.
+## Status
 
-## What Was Built
+Phase 0A is built and verified. It established the current FastAPI backend, SQLite database, local MCP wrapper, mock APIs, seed data, and logging.
+
+Phase 0B is the required next foundation change before Phase 2 begins. Phase 0B is not built yet. It replaces JSON-based access template storage with a normalized role/access schema that Phase 2 can query reliably through tool-use.
+
+Phase 1 identity verification only reads the `users` table, so the Phase 0B schema rework should not affect the working ACF2 flow.
+
+## Phase 0A - What Shipped
 
 | Deliverable | Location | Purpose |
 |-------------|----------|---------|
-| Full SQLite schema (11 tables) | `backend/scripts/seed_sqlite.py` | All tables created with IF NOT EXISTS |
-| 3 demo users seeded | `backend/scripts/seed_sqlite.py` | ARUN01, NEHA02, SARA03 |
-| 8 designation templates | `backend/scripts/seed_sqlite.py` | Context stuffing source for agent |
-| Dangerous combinations table | `backend/scripts/seed_sqlite.py` | 5 entries — Privilege Guard source |
-| Privilege edges for NEHA02 | `backend/scripts/seed_sqlite.py` | finance_data_read + prod_db_read |
-| Approval events for Risk Scorer | `backend/scripts/seed_sqlite.py` | 10 baseline + 5 ARUN01 anomalies |
-| Approver routing (all items) | `backend/scripts/seed_sqlite.py` | All → Teams webhook |
-| SQLite MCP Server | `backend/mcp_server/sqlite_server.py` | FastMCP — query_db + execute_db tools |
-| Color-coded logging utility | `backend/src/lib/logger.py` | [AGENT] [BEDROCK] [MCP] [MOCK] [TEAMS] etc. |
-| Mock Workday API | `backend/src/mock/workday.py` | GET /mock/workday/employee/{acf2_id} |
-| Mock AD/LDAP API | `backend/src/mock/ad.py` | POST /mock/ad/provision |
-| Mock Jira API | `backend/src/mock/jira.py` | POST /mock/jira/provision |
-| Mock SAM API | `backend/src/mock/sam.py` | POST /mock/sam/provision/* |
-| FastAPI startup logging | `backend/src/main.py` | Logs routes on startup |
-| Stale folder cleanup | root | Removed agent/, mock-apis/, orchestrator/, schema/ |
+| SQLite seed script | `backend/scripts/seed_sqlite.py` | Creates and seeds the local demo database |
+| Demo users | `backend/scripts/seed_sqlite.py` | Seeds ARUN01, NEHA02, and SARA03 |
+| JSON-based designations | `backend/scripts/seed_sqlite.py` | Seeds 8 role templates using `mandatory_items` and `optional_items` JSON columns |
+| Dangerous combinations | `backend/scripts/seed_sqlite.py` | Seeds privilege combinations for Phase 4 |
+| NEHA02 privilege edges | `backend/scripts/seed_sqlite.py` | Seeds existing access for Privilege Guard demos |
+| ARUN01 approval history | `backend/scripts/seed_sqlite.py` | Seeds synthetic data for later Risk Scorer demos |
+| Approver routing | `backend/scripts/seed_sqlite.py` | Routes access items to a demo Teams webhook target |
+| SQLite MCP wrapper | `backend/mcp_server/sqlite_server.py` | Exposes `query_db` and `execute_db` tools over FastMCP |
+| Mock Workday API | `backend/src/mock/workday.py` | Returns employee records by ACF2 ID |
+| Mock provisioning APIs | `backend/src/mock/ad.py`, `backend/src/mock/jira.py`, `backend/src/mock/sam.py` | Provide local provisioning targets for later phases |
+| Backend logging utility | `backend/src/lib/logger.py` | Provides `[AGENT]`, `[BEDROCK]`, `[MCP]`, `[MOCK]`, and related log prefixes |
+| Environment examples | `backend/.env.example`, `frontend/.env.example` | Documents required local environment variables |
 
-## Why It Was Built
+## Current Phase 0A Schema
 
-Phase 0 establishes the full infrastructure foundation before any agent logic is built. Without this phase:
-- Agent has no DB to query (missing tables)
-- Risk Scorer has no historical data to score against
-- Privilege Guard has no dangerous_combinations or privilege_edges to check
-- Demo has wrong users (old RIYA001/JOHN002 data)
-- No logging — impossible to debug agent/MCP/Bedrock interactions
-- No mock APIs — Orchestrator (Phase 5) has nothing to call
+The currently shipped database contains these core tables:
 
-## How It Works
-
-### Database Schema
-
-11 tables, all created with `IF NOT EXISTS` so the script is idempotent:
-
-```
-users                 — ACF2 ID, name, team, manager, dept, employment_type
-designations          — 8 role templates with mandatory/optional access items (JSON arrays)
-access_requests       — submitted requests with final bundle, risk score, status
-approval_events       — per-item approval state (pending/approved/rejected)
-approver_routing      — access_item → Teams webhook URL
-audit_log             — append-only trail of all state changes
-privilege_edges       — user's existing permissions (Privilege Guard source)
-dangerous_combinations— permission combos that trigger warnings
-template_drafts       — no-match flow draft templates (Phase 6)
-conversations         — chat sessions per ACF2 ID
-messages              — individual chat messages
+```text
+users
+designations             # currently includes mandatory_items and optional_items JSON columns
+access_requests
+approval_events
+approver_routing
+audit_log
+privilege_edges
+dangerous_combinations
+template_drafts
+conversations
+messages
 ```
 
-### Demo User Scenarios
+The current `designations` table is useful for early demos, but it is not the right shape for Phase 2 and Phase 3 because access items are embedded as JSON arrays. That makes it harder to query, attach ServiceNow catalog IDs, route approvals per item, and render individual mandatory/optional rows cleanly.
 
-| ACF2 ID | Scenario | Key Seed Data |
-|---------|----------|---------------|
-| ARUN01  | Happy path + Risk Scorer ~78 | 5 anomalous approval_events (2 off-hours, 3 rejected, 1 escalated) |
-| NEHA02  | Privilege Guard fires | privilege_edges: finance_data_read + prod_db_read |
-| SARA03  | No-match → template generation | No matched designation template |
+## Phase 0B - Required Schema Rework
 
-### Risk Scorer Seed Data (ARUN01)
+Phase 0B should reset and re-seed the local database with a normalized role/access model:
 
-The 15 seeded approval_events produce a risk score of ~78 for ARUN01 because:
-
-| Signal | Value | Baseline |
-|--------|-------|---------|
-| Off-hours rate | 2/5 = 40% | ~0% |
-| Rejection rate | 3/5 = 60% | ~10% |
-| Re-request velocity | prod_db_write twice in 3 days | Rare |
-| Escalation | 1 manager override | None in baseline |
-| Item deviation | prod_db_write is unusual for DevOps role | Not in standard template |
-
-### Privilege Guard Seed Data (NEHA02)
-
-```
-NEHA02 existing privileges (privilege_edges):
-  finance_data_read   — granted 2025-01-15 by Deepa Menon
-  prod_db_read        — granted 2025-03-01 by Deepa Menon
-
-Finance Analyst template optional items:
-  finance_systems_write
-  external_reporting_api  ← triggers danger_003
-
-Dangerous combination danger_003:
-  finance_data_read + external_reporting_api = HIGH
-  Reason: Finance data exfiltration vector to external systems
+```text
+users
+user_designations
+designations
+role_access_items
+access_requests
+approval_events
+approver_routing
+audit_log
+privilege_edges
+dangerous_combinations
+template_drafts
+conversations
+messages
 ```
 
-### SQLite MCP Server
+### Target Tables
+
+#### `users`
+
+Stores identity and Workday-style employee context.
+
+```text
+acf2_id TEXT PRIMARY KEY
+name TEXT NOT NULL
+team TEXT
+manager TEXT
+dept TEXT
+employment_type TEXT
+```
+
+No designation column should be added here. Role assignment belongs in `user_designations`.
+
+#### `designations`
+
+Stores one row per role template.
+
+```text
+id TEXT PRIMARY KEY
+title TEXT NOT NULL
+description TEXT
+team_hint TEXT
+dept_hint TEXT
+```
+
+The JSON columns `mandatory_items` and `optional_items` should be removed.
+
+#### `role_access_items`
+
+Stores one row per access item in each role template.
+
+```text
+id TEXT PRIMARY KEY
+designation_id TEXT NOT NULL
+access_item TEXT NOT NULL
+display_name TEXT
+system TEXT
+description TEXT
+mandatory INTEGER NOT NULL
+owner_team TEXT
+servicenow_catalog_item_id TEXT
+sort_order INTEGER
+```
+
+This table is the source for Phase 2 matching details, Phase 3 right-panel rendering, Phase 4 privilege checks, and Phase 5 ServiceNow item mapping.
+
+#### `user_designations`
+
+Stores the resolved role for a user.
+
+```text
+acf2_id TEXT PRIMARY KEY
+designation_id TEXT NOT NULL
+assigned_at INTEGER NOT NULL
+source TEXT NOT NULL
+```
+
+Planned seed rows:
+
+```text
+ARUN01 -> devops_cloud_engineer
+NEHA02 -> finance_analyst
+```
+
+SARA03 should intentionally have no `user_designations` row so the no-match path remains available for later phases.
+
+## Phase 0B Seed Plan
+
+Seed these 8 designations:
+
+```text
+backend_developer
+devops_cloud_engineer
+data_analyst
+finance_analyst
+intern
+manager_team_lead
+auditor
+contractor
+```
+
+For each designation, seed role access items as individual `role_access_items` rows. Each row should include:
+
+```text
+designation_id
+access_item
+display_name
+system
+description
+mandatory
+owner_team
+servicenow_catalog_item_id
+sort_order
+```
+
+The same access item names should continue to be used by `approver_routing`, `privilege_edges`, and `dangerous_combinations`.
+
+## Migration Approach
+
+Because this is a local hackathon demo database and no real user data exists yet, Phase 0B can be a clean reset:
+
+1. Stop backend and frontend processes.
+2. Delete `backend/hackherway.db`.
+3. Update `backend/scripts/seed_sqlite.py` to create the normalized schema.
+4. Run `python scripts/seed_sqlite.py`.
+5. Verify Phase 1 identity still works for ARUN01, NEHA02, and SARA03.
+
+No production migration script is needed at this stage.
+
+## How To Verify Phase 0B When Built
+
+From `backend/`:
 
 ```bash
-# Start the MCP server (from backend/ folder)
-python -m mcp_server.sqlite_server
-
-# The server exposes two tools via MCP protocol:
-#   query_db(sql)   — SELECT only
-#   execute_db(sql) — INSERT / UPDATE (blocks DROP/TRUNCATE/ALTER)
-```
-
-The agent (Phase 1+) connects to this server via stdio and generates SQL using Bedrock's tool-use.
-
-### Mock APIs
-
-All mock routes are mounted on the FastAPI app:
-
-```
-GET  /mock/workday/employee/{acf2_id}   → employee record or 404
-POST /mock/ad/provision                 → {"success": true, "reference_id": "AD-xxxx"}
-POST /mock/jira/provision               → {"success": true, "reference_id": "JIRA-xxxx"}
-POST /mock/sam/provision/github-copilot → {"success": true, "reference_id": "SAM-COP-xxxx"}
-POST /mock/sam/provision/non-primary-id → {"success": true, "reference_id": "SAM-NPI-xxxx"}
-```
-
-### Logging
-
-All backend modules import from `backend/src/lib/logger.py`:
-
-```python
-from src.lib.logger import agent, bedrock, mcp, mock, teams, snow, orch, error
-
-agent("User ARUN01 message received")
-bedrock("tool_call → query_db")
-mcp("SQL: SELECT * FROM users WHERE acf2_id = 'ARUN01' → 1 row")
-mock("Workday lookup OK → Arun Mehta (Cloud Infrastructure)")
-```
-
-## How to Test
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env  # fill in AWS creds
 python scripts/seed_sqlite.py
+python -m unittest discover -s tests
 ```
 
-Expected output:
-```
-Users:
-  seeded: ARUN01 - Arun Mehta
-  seeded: NEHA02 - Neha Kapoor
-  seeded: SARA03 - Sara Chen
+Database checks:
 
-Designation templates:
-  template: backend_developer
-  template: devops_cloud_engineer
-  template: data_analyst
-  template: finance_analyst
-  template: intern
-  template: manager_team_lead
-  template: auditor
-  template: contractor
-
-Dangerous combinations:
-  [CRITICAL] prod_db_write + deploy_pipeline_write
-  [HIGH] prod_db_read + deploy_pipeline_write
-  [HIGH] finance_data_read + external_reporting_api
-  [CRITICAL] finance_systems_write + external_reporting_api
-  [HIGH] npe_environment + prod_db_write
-
-Privilege edges (NEHA02):
-  edge: NEHA02 → finance_data_read
-  edge: NEHA02 → prod_db_read
-
-Approver routing: 37 access items → Teams webhook
-
-Approval events:
-  baseline (normal): 10 events (HIST001-006, devops role)
-  ARUN01 anomalies:  5 events (2 off-hours, 3 rejections → score ~78)
-
-Done. DB at: ...\hackherway-ps6\backend\hackherway.db
+```sql
+SELECT * FROM users WHERE acf2_id = 'ARUN01';
+SELECT * FROM user_designations WHERE acf2_id = 'ARUN01';
+SELECT * FROM designations WHERE id = 'devops_cloud_engineer';
+SELECT * FROM role_access_items WHERE designation_id = 'devops_cloud_engineer' ORDER BY sort_order;
+SELECT * FROM role_access_items WHERE servicenow_catalog_item_id IS NOT NULL LIMIT 5;
 ```
 
-Start the backend and verify mock Workday:
+Expected outcomes:
 
-```bash
-uvicorn src.main:app --reload --port 8000
-# Open: http://localhost:8000/mock/workday/employee/ARUN01
-```
-
-Expected response:
-```json
-{
-  "status": "found",
-  "employee": {
-    "acf2_id": "ARUN01",
-    "name": "Arun Mehta",
-    "team": "Cloud Infrastructure",
-    "manager": "Raj Kumar",
-    ...
-  }
-}
-```
-
-Verify MCP server standalone:
-
-```bash
-python -m mcp_server.sqlite_server
-# Server starts — ready for MCP client connections
-# Agent will connect to this in Phase 1
-```
+- `users` returns all 3 demo users.
+- `user_designations` contains ARUN01 and NEHA02 only.
+- `designations` has 8 rows with no JSON access columns.
+- `role_access_items` contains individual mandatory/optional rows.
+- Existing Phase 1 identity tests still pass.
+- Workday mock still returns ARUN01 and 404s unknown IDs.
 
 ## Decisions Made
 
-- **SQLite MCP server built with FastMCP** (not official `mcp-server-sqlite` npm package) — pure Python, no Node.js dependency in backend, fully MCP protocol compliant. Registered as ADR candidate.
-- **Seed script uses direct sqlite3** — utility scripts (not application code) are exempt from the "MCP only" rule. Application agent code will use MCP exclusively.
-- **Mocks placed in `backend/src/mock/`** — follows existing `backend/src/routes/` pattern for clean relative imports. Matches FastAPI router structure.
-- **All 37 access items pre-routed** — approver_routing seeded for all items upfront so Phase 5 Teams card integration has routing data ready.
-- **Stale folders removed** — `agent/`, `mock-apis/`, `orchestrator/`, `schema/` from old TypeScript architecture deleted. Only `frontend/`, `backend/`, `docs/` remain.
+- Phase 0A shipped with JSON template fields to unblock identity verification quickly.
+- Phase 0B will normalize role/access data before Phase 2.
+- `users` remains stable and is the only table Phase 1 depends on.
+- Seed/setup scripts may use direct `sqlite3`; application flows continue to use the MCP tool path.
+- The local MCP server is the Python FastMCP wrapper in `backend/mcp_server/sqlite_server.py`.
+- No real data exists yet, so a clean database reset is acceptable for Phase 0B.

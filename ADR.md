@@ -20,7 +20,7 @@
 | ADR-008 | D3: Cross-Request Privilege Accumulation Detection | Accepted | 2026-04-29 |
 | ADR-009 | ADR Enforcement via Git Convention | Accepted | 2026-04-29 |
 | ADR-010 | LLM Provider: AWS Bedrock Claude Sonnet 4.6 | Accepted | 2026-04-29 |
-| ADR-011 | Template Matching: LLM Context Stuffing | Accepted | 2026-04-29 |
+| ADR-011 | Template Matching: Tool-Query Over Normalized Role Tables | Accepted | 2026-04-30 |
 | ADR-012 | Agentic Design: 4 Capabilities in One Agent | Accepted | 2026-04-29 |
 | ADR-013 | Auth: Bypassed for Hackathon, Azure AD for Production | Accepted | 2026-04-29 |
 | ADR-014 | Production Migration Path | Accepted | 2026-04-29 |
@@ -117,11 +117,29 @@ MongoDB Atlas introduced firewall and setup uncertainty. A local database is eno
 ### Decision
 Use SQLite as the hackathon database and access it through the official SQLite MCP server. Application code must not call `sqlite3` directly for feature flows; direct SQLite is permitted only for local seed/setup scripts.
 
-Core tables:
+Current Phase 0A tables:
 
 ```text
 users
-designations
+designations                 # Phase 0A JSON-template shape
+access_requests
+approval_events
+approver_routing
+audit_log
+privilege_edges
+dangerous_combinations
+template_drafts
+conversations
+messages
+```
+
+Target Phase 0B role/access tables before Phase 2:
+
+```text
+users
+user_designations
+designations                 # id/title/description only
+role_access_items            # one access item per row
 access_requests
 approval_events
 approver_routing
@@ -258,12 +276,26 @@ If Bedrock fails during the demo, the backend should return a graceful user-faci
 
 ---
 
-## ADR-011: Template Matching - LLM Context Stuffing
+## ADR-011: Template Matching - Tool-Query Over Normalized Role Tables
 
-**Date:** 2026-04-29 | **Status:** Accepted
+**Date:** 2026-04-30 | **Status:** Accepted
+
+**Supersedes:** Previous ADR-011 context-stuffing decision.
 
 ### Decision
-Load all designation templates from SQLite and inject them into the agent's system context for fuzzy matching. Do not build RAG/vector search for the hackathon.
+Phase 2 will use Bedrock reasoning with tool-use queries over normalized SQLite role/access tables. Do not inject the full designation catalog into the system prompt.
+
+The target schema is:
+
+```text
+designations(id, title, description, team_hint, dept_hint)
+role_access_items(id, designation_id, access_item, display_name, system, description, mandatory, owner_team, servicenow_catalog_item_id, sort_order)
+user_designations(acf2_id, designation_id, assigned_at, source)
+```
+
+The agent should query candidate designations and their access items through `query_db`, reason over those results, and return structured selected-template data to the frontend.
+
+Do not build RAG/vector search for the hackathon.
 
 Match behavior:
 
@@ -272,6 +304,12 @@ confidence > 0.95       -> serve direct match
 0.70 <= confidence <= .95 -> return top 3 for user selection
 confidence < 0.70       -> no-match flow and template draft
 ```
+
+### Consequences
+- Keeps the system prompt smaller and less brittle than full context stuffing.
+- Makes mandatory and optional access rows queryable for Phase 3.
+- Gives each access item a place to store owner teams and ServiceNow catalog IDs.
+- Requires Phase 0B schema rework before Phase 2 implementation starts.
 
 ---
 
