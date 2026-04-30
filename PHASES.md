@@ -90,15 +90,17 @@ Stretch   → RetellAI Voice Layer
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 0 | Foundation | 🔲 Not started |
-| 1 | Agent Core + Identity Verification | 🔲 Not started |
-| 2 | Role Resolver + Template Matching | 🔲 Not started |
+| 0 | Foundation | ✅ Done — **schema rework pending** (3-table role/access model) |
+| 1 | Agent Core + Identity Verification | ✅ Done |
+| 2 | Role Resolver + Template Matching | 🔲 Next — depends on Phase 0 schema rework |
 | 3 | Template UI + Submission Flow | 🔲 Not started |
 | 4 | Risk Scorer + Privilege Guard | 🔲 Not started |
 | 5 | ServiceNow MCP + Teams + Orchestrator | 🔲 Not started |
 | 6 | Status Tracker + No-Match + Admin Dashboard | 🔲 Not started |
 | 7 | Polish + Demo Prep | 🔲 Not started |
 | Stretch | RetellAI Voice Layer | 🔲 Not started |
+
+> **Phase 0 schema rework (planned, not built):** Replace JSON-based `designations` with 3 normalized tables — `user_designations` (user→role), `designations` (id/title only), `role_access_items` (per-item rows with `servicenow_catalog_item_id`). Re-seed clean (no real data yet). Phase 1 code unaffected — only `users` table is queried in Phase 1.
 
 ---
 
@@ -109,9 +111,11 @@ Stretch   → RetellAI Voice Layer
 | Task | Notes |
 |------|-------|
 | Finalize folder structure: `frontend/`, `backend/`, `docs/phases/` | Remove any stale folders from old architecture |
-| Create SQLite schema — all tables | `users`, `designations`, `access_requests`, `approval_events`, `approver_routing`, `audit_log`, `privilege_edges`, `dangerous_combinations`, `template_drafts` |
+| Create SQLite schema — all tables | `users`, `user_designations`, `designations`, `role_access_items`, `access_requests`, `approval_events`, `approver_routing`, `audit_log`, `privilege_edges`, `dangerous_combinations`, `template_drafts` |
 | Seed 3 demo users: ARUN01, NEHA02, SARA03 | With correct team/dept/manager data per demo scenarios |
-| Seed 5–8 designation templates into `designations` | Backend Dev, DevOps, Data Analyst, Finance Analyst, Intern, Manager, Auditor, Contractor |
+| Seed 8 designation rows into `designations` | Backend Dev, DevOps, Data Analyst, Finance Analyst, Intern, Manager, Auditor, Contractor. Title + description only — items live in `role_access_items` |
+| Seed `role_access_items` (~80 rows) | One row per (designation × access_item). Includes `mandatory` flag, `owner_team`, `servicenow_catalog_item_id` for Phase 5 SN integration |
+| Seed `user_designations` (2 rows) | ARUN01 → devops_cloud_engineer, NEHA02 → finance_analyst. **No row for SARA03** (absence = no-match scenario) |
 | Seed `dangerous_combinations` table | Prod DB write + deploy pipeline write = CRITICAL. Prod DB read + deploy pipeline write = HIGH. Any prod access + intern seniority = HIGH. Finance data + external API = HIGH. NPE + intern seniority = HIGH |
 | Seed `privilege_edges` for NEHA02 | Pre-existing permissions that will trigger Privilege Guard in Phase 4 |
 | Seed synthetic `approval_events` for ARUN01 | Historical data that produces Risk Scorer anomaly score ~78 |
@@ -170,11 +174,12 @@ Stretch   → RetellAI Voice Layer
 | Task | Notes |
 |------|-------|
 | Extend agent system prompt: Role Resolver capability | "After identity is confirmed, ask the user about their role. If role, seniority, or employment_type is missing or ambiguous, ask targeted follow-up questions. Team is pre-filled from the user record. Do not proceed to template matching until all fields are resolved." |
-| System prompt: inject all designation templates | Context stuffing — all 8 templates with their mandatory and optional access items |
-| System prompt: template matching instructions | "Given the resolved role, select the best matching designation template. Return match_id, confidence (0–1), and reasoning. If confidence < 0.70 for all templates, return no_match: true." |
-| Structured output from agent for template match | Agent returns JSON with selected template, confidence, and reasoning. Frontend parses this to render in right panel |
+| Agent queries designation catalog via tool-use | `query_db` joins `designations` + `role_access_items` on demand. No upfront context-stuffing of all templates — agent fetches as needed |
+| System prompt: template matching instructions | "Given the resolved role, query designations + role_access_items to identify the best match. Return match_id, confidence (0–1), and reasoning. If confidence < 0.70 for all designations, return no_match: true." |
+| Structured output from agent for template match | Agent returns JSON with selected designation, confidence, and reasoning. Frontend parses this to render in right panel |
 | Top-3 selection logic | Confidence 0.70–0.95 → return top 3 with scores, user picks one. Confidence > 0.95 → serve directly |
-| No-match flag | `no_match: true` → handled in Phase 6. For now: agent says "I couldn't find an exact match for your role. Let me flag this for review." |
+| On match confirmed: write to `user_designations` | INSERT row (acf2_id, designation_id, assigned_at, source='agent_resolved') via `execute_db` |
+| No-match flag | `no_match: true` → handled in Phase 6. For now: agent says "I couldn't find an exact match for your role. Let me flag this for review." No row written to `user_designations` |
 | Session state: populate `resolved_role` and `selected_template` | Carried forward to submission |
 | Test: "I do backend stuff" → 2 clarifying questions → resolves to Backend Developer | Verifies multi-turn resolution |
 | Test: "Junior Backend Developer, full-time" → resolves in one turn | Verifies direct match |

@@ -181,14 +181,23 @@ The agent does NOT parse intent as JSON. It uses Bedrock's native tool-use (func
 
 ## Database Schema
 
-All tables accessed via SQLite MCP only (no direct sqlite3 calls):
+All tables accessed via SQLite MCP only (no direct sqlite3 calls).
+
+### Core entity model (3-table normalized role/access model)
 
 | Table | Purpose |
 |-------|---------|
-| `users` | ACF2 ID, name, team, manager, dept, employment_type |
-| `designations` | 5–8 role templates with mandatory/optional access items |
-| `access_requests` | Submitted requests with final bundle, risk score, status |
-| `approval_events` | Per-item approval state (pending/approved/rejected) |
+| `users` | ACF2 ID, name, team, manager, dept, employment_type. **No designation column** — link lives in `user_designations` |
+| `user_designations` | One row per user (PK = `acf2_id`) → designation_id. Enforces 1 role per user. Absence of row = no role assigned (e.g. SARA03 no-match scenario) |
+| `designations` | id, title, description. **No JSON columns** — items normalized into `role_access_items` |
+| `role_access_items` | designation_id, access_item, mandatory (0/1), description, owner_team, servicenow_catalog_item_id. ~80 rows total (8 roles × ~10 items) |
+
+### Request / approval / audit tables
+
+| Table | Purpose |
+|-------|---------|
+| `access_requests` | Submitted requests: id (= REQ ticket), acf2_id, final bundle, risk score, status |
+| `approval_events` | Per-item approval state (= per RITM): request_id, access_item, ritm_id, status (pending/approved/rejected) |
 | `approver_routing` | Maps access items → approver webhook URL |
 | `audit_log` | Append-only trail of all state changes |
 | `privilege_edges` | User's existing permissions (for Privilege Guard) |
@@ -196,6 +205,16 @@ All tables accessed via SQLite MCP only (no direct sqlite3 calls):
 | `template_drafts` | No-match flow draft templates pending admin ratification |
 | `conversations` | Conversation records per ACF2 ID |
 | `messages` | Chat message history |
+
+### Status tracking path (Phase 6)
+
+```
+users.acf2_id
+  → access_requests.acf2_id (= REQ ticket)
+    → approval_events.request_id (= per-item RITM tickets)
+      → ServiceNow API (live state per RITM)
+```
+`user_designations` and `role_access_items` are **not** in the status path — they drive Phase 2 (role resolution) and Phase 3 (template UI), not status.
 
 ---
 

@@ -1,5 +1,15 @@
 # Phase 0 — Foundation
 
+> **Schema rework planned (not yet built).** This document describes Phase 0 as it shipped: 11 tables with `designations` carrying access items as JSON arrays. A schema rework is queued before Phase 2 begins:
+>
+> - **Drop:** `designations.mandatory_items` and `designations.optional_items` JSON columns
+> - **Add:** `user_designations(acf2_id PK, designation_id, assigned_at, source)` — separate user→role mapping table (1 user → 1 role)
+> - **Add:** `role_access_items(designation_id, access_item, mandatory, description, owner_team, servicenow_catalog_item_id)` — normalized per-item rows; ~80 rows total. Carries ServiceNow catalog item IDs for Phase 5 SN integration.
+> - **Re-seed:** delete current `hackherway.db`, re-run seed script. No real data exists yet — safe.
+>
+> Phase 1 code uses only the `users` table — unaffected by this rework.
+> See `CLAUDE.md` § Database Schema for the target shape.
+
 ## What Was Built
 
 | Deliverable | Location | Purpose |
