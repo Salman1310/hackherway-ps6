@@ -1,3 +1,9 @@
+'use client';
+
+import { CheckCircle2, Circle, Layers3 } from 'lucide-react';
+import { useSession } from '@/contexts/SessionContext';
+import type { AccessItem } from '@/lib/types';
+
 const steps = [
   { label: 'Request Created' },
   { label: 'Manager Approval' },
@@ -6,39 +12,89 @@ const steps = [
 ];
 
 export default function RightPanel() {
+  const { session } = useSession();
+  const template = session.selected_template;
+  const resolvedRole = session.resolved_role;
+  const hasTemplate = Boolean(template);
+
   return (
     <div className="flex flex-col w-full bg-white rounded-2xl overflow-hidden shadow-xl">
       {/* Template section */}
       <div className="flex-1 p-4 border-b border-gray-100 overflow-y-auto chat-scrollbar">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-gray-900 text-sm">Access Template</h2>
-          <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-            Waiting
+          <span
+            className={[
+              'text-[10px] px-2 py-0.5 rounded-full',
+              hasTemplate ? 'text-green-700 bg-green-50' : 'text-gray-400 bg-gray-100',
+            ].join(' ')}
+          >
+            {hasTemplate ? 'Matched' : 'Waiting'}
           </span>
         </div>
 
-        <p className="text-[11px] text-gray-400 mb-3">
-          Template matches will appear here after role confirmation.
-        </p>
-
-        {/* Skeleton cards */}
-        <div className="space-y-2.5">
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-gray-100 p-3 opacity-60 animate-pulse"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gray-100 flex-shrink-0" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-2.5 bg-gray-100 rounded-full w-3/4" />
-                  <div className="h-2 bg-gray-100 rounded-full w-1/2" />
+        {template ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-green-100 bg-green-50/50 p-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                  <Layers3 className="w-4 h-4 text-green-700" />
                 </div>
-                <div className="w-4 h-4 rounded bg-gray-100 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-gray-900 leading-snug">
+                    {template.name}
+                  </h3>
+                  {resolvedRole && (
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      {resolvedRole.team || 'Team pending'} -{' '}
+                      {resolvedRole.employment_type || 'Employment type pending'}
+                    </p>
+                  )}
+                  {template.confidence !== undefined && (
+                    <p className="text-[10px] text-green-700 mt-2">
+                      Confidence {Math.round(template.confidence * 100)}%
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-          ))}
-        </div>
+
+            <AccessGroup
+              title="Mandatory"
+              items={template.mandatory_access}
+              mandatory
+            />
+            <AccessGroup
+              title="Optional"
+              items={template.optional_access}
+              mandatory={false}
+            />
+          </div>
+        ) : (
+          <>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Template matches will appear here after role confirmation.
+            </p>
+
+            <div className="space-y-2.5">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border border-gray-100 p-3 opacity-60 animate-pulse"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gray-100 flex-shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-2.5 bg-gray-100 rounded-full w-3/4" />
+                      <div className="h-2 bg-gray-100 rounded-full w-1/2" />
+                    </div>
+                    <div className="w-4 h-4 rounded bg-gray-100 flex-shrink-0" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Legend */}
         <div className="mt-4 flex items-center gap-3 text-[10px] text-gray-400">
@@ -73,6 +129,58 @@ export default function RightPanel() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessGroup({
+  title,
+  items,
+  mandatory,
+}: {
+  title: string;
+  items: AccessItem[];
+  mandatory: boolean;
+}) {
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          {title}
+        </h3>
+        <span className="text-[10px] text-gray-400">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div key={item.id} className="rounded-xl border border-gray-100 p-3">
+            <div className="flex items-start gap-2.5">
+              {mandatory ? (
+                <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+              ) : (
+                <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-gray-800 leading-snug">
+                  {item.name}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                  {item.system}
+                  {item.owner_team ? ` - ${item.owner_team}` : ''}
+                </p>
+                {item.reason && (
+                  <p className="text-[10px] text-gray-500 mt-1.5 leading-snug">
+                    {item.reason}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

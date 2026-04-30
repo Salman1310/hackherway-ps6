@@ -8,9 +8,12 @@ export type WorkdayContext = {
 
 export type ResolvedRole = {
   role: string;
+  designation_id: string;
   seniority: string;
   employment_type: string;
   team: string;
+  dept: string;
+  confidence: number;
 };
 
 export type AccessItem = {
@@ -19,11 +22,17 @@ export type AccessItem = {
   system: string;
   reason: string;
   mandatory: boolean;
+  owner_team?: string;
+  servicenow_catalog_item_id?: string;
+  sort_order?: number;
 };
 
 export type SelectedTemplate = {
   id: string;
   name: string;
+  description?: string;
+  confidence?: number;
+  reasoning?: string;
   mandatory_access: AccessItem[];
   optional_access: AccessItem[];
 };

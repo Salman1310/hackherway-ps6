@@ -2,144 +2,93 @@
 
 ## Status
 
-Planned. Do not start Phase 2 until Phase 0B normalized schema rework is complete.
+Done.
 
-Phase 2 depends on these Phase 0B tables:
+Phase 2 is built on top of the Phase 0B normalized schema. It resolves a verified user's role, queries the normalized designation catalog, returns a selected access template, and renders that template in the frontend right panel.
 
-```text
-designations
-role_access_items
-user_designations
-```
+Phase 2 does not submit access requests. Submission starts in Phase 3.
 
 ## Goal
 
-After identity verification, the user describes their role. The agent resolves the role details, queries the normalized designation catalog, selects the best access template, and returns structured template data that the frontend can render in the right panel.
+After identity verification, the user describes their role. The agent asks for clarification when needed, queries `designations` and `role_access_items`, selects the best access template, updates session state, and lets the frontend render the result.
 
-Phase 2 should not submit access requests. Submission starts in Phase 3.
+## What Was Built
 
-## What Changes From Phase 1
+| Deliverable | Location | Notes |
+|-------------|----------|-------|
+| Role phase handler | `backend/src/agent/index.py` | Continues after `session.acf2_id` is set |
+| Role resolver prompt | `backend/src/agent/index.py` | Uses normalized schema and forbids full catalog context stuffing |
+| Tool-query matching loop | `backend/src/agent/index.py` | Lets Bedrock query `designations` and `role_access_items` through `query_db` |
+| Selected template shaping | `backend/src/agent/index.py` | Builds `resolved_role`, `selected_template`, and mandatory `final_bundle` |
+| Role mapping write | `backend/src/agent/index.py` | Upserts confident matches into `user_designations` through MCP `execute_db` |
+| Frontend type contract | `frontend/src/lib/types.ts` | Adds Phase 2 fields for confidence, reasoning, owner team, and catalog IDs |
+| Right-panel renderer | `frontend/src/components/layout/RightPanel.tsx` | Renders backend-selected template only; no Phase 3 toggles or submit |
+| Regression tests | `backend/tests/test_phase2_role_resolver.py` | Covers prompt rules, direct match, vague input, and no-match response |
 
-Phase 1 ends after identity is locked and the agent asks for the user's role.
-
-Phase 2 adds:
-
-- role clarification after identity verification
-- designation/template lookup through `query_db`
-- structured selected-template response data
-- session updates for `resolved_role` and `selected_template`
-- optional write to `user_designations` when the role is confidently resolved
-
-## Data Model Assumption
-
-Phase 2 assumes this normalized shape:
+## How It Works
 
 ```text
-designations(id, title, description, team_hint, dept_hint)
-role_access_items(id, designation_id, access_item, display_name, system, description, mandatory, owner_team, servicenow_catalog_item_id, sort_order)
-user_designations(acf2_id, designation_id, assigned_at, source)
+User is verified in Phase 1
+  -> user describes role
+  -> backend calls Bedrock with Phase 2 role prompt
+  -> Bedrock uses query_db for candidate designations
+  -> Bedrock uses query_db for role_access_items
+  -> backend captures returned rows
+  -> backend shapes selected_template
+  -> backend upserts user_designations for confident matches
+  -> frontend renders selected_template in the right panel
 ```
 
-Do not rely on `designations.mandatory_items` or `designations.optional_items`. Those JSON columns belong to the Phase 0A schema and should be removed in Phase 0B.
+The frontend does not choose templates, compute confidence, call Bedrock, or query SQLite. It only renders the structured data returned by the backend.
 
-## Matching Strategy
-
-Use Bedrock reasoning plus tool-use queries over SQLite. Do not context-stuff all templates into the system prompt.
-
-The agent should:
-
-1. Use the locked `session.acf2_id` and `session.workday_context`.
-2. Ask clarifying questions if role, seniority, employment type, team, or department is unclear.
-3. Query `designations` for candidate roles.
-4. Query `role_access_items` for the candidate roles.
-5. Choose the best match using role text, seniority, employment type, team, department, and available access items.
-6. Return structured data for the frontend.
-
-This keeps the prompt smaller and makes access item rows available to Phase 3 without JSON parsing.
-
-## Planned Work
-
-| Task | Owner Module | Notes |
-|------|--------------|-------|
-| Extend agent state handling | `backend/src/agent/index.py` | Continue after identity instead of returning the Phase 1 placeholder |
-| Update tool schema awareness | `backend/src/agent/index.py` | Add `user_designations` and `role_access_items` to tool descriptions |
-| Add role-resolution prompt rules | `backend/src/agent/index.py` | Ask focused follow-ups for vague role input |
-| Query designation catalog | `query_db` tool | Read `designations` and candidate `role_access_items` rows |
-| Add optional write tool path | `execute_db` tool or constrained backend helper | Write confirmed matches to `user_designations` only after confidence threshold is met |
-| Extend response model | `backend/src/types.py` | Return structured template data in `session_update` |
-| Render backend-selected template | `frontend/src/components/layout/RightPanel.tsx` | Frontend renders data only; no matching logic |
-| Add regression tests | `backend/tests/` | Cover direct match, vague role clarification, no-match, and gibberish input |
-
-## Target Flow
-
-```text
-ARUN01 verified
-  -> user says "I am a backend developer"
-  -> agent resolves role details
-  -> agent queries designations and role_access_items
-  -> agent selects the best template
-  -> backend returns selected_template and resolved_role
-  -> frontend renders the selected template in the right panel
-```
-
-For vague input:
-
-```text
-ARUN01 verified
-  -> user says "I do backend stuff"
-  -> agent asks a focused follow-up
-  -> user answers
-  -> agent resolves and matches
-```
-
-## Confidence Rules
-
-| Confidence | Behavior |
-|------------|----------|
-| `> 0.95` | Return one selected template |
-| `0.70 - 0.95` | Return top 3 candidate templates for user selection |
-| `< 0.70` | Return `no_match: true`; do not write `user_designations` |
-
-When confidence is high enough and the user confirms the match, write:
-
-```text
-user_designations(acf2_id, designation_id, assigned_at, source='agent_resolved')
-```
-
-For SARA03 or any unclear role with low confidence, do not write `user_designations`.
-
-## Structured Response Shape
-
-The backend should update session state with data shaped like:
+## Structured Session Update
 
 ```json
 {
   "resolved_role": {
     "role": "Backend Developer",
-    "seniority": "Junior",
+    "designation_id": "backend_developer",
+    "seniority": "Not specified",
     "employment_type": "full-time",
-    "team": "Cloud Infrastructure"
+    "team": "Cloud Infrastructure",
+    "dept": "Technology",
+    "confidence": 0.96
   },
   "selected_template": {
     "id": "backend_developer",
     "name": "Backend Developer",
-    "confidence": 0.93,
-    "reasoning": "The role description maps to backend service development in the Technology department.",
+    "description": "Software engineer building server-side services and APIs",
+    "confidence": 0.96,
+    "reasoning": "I matched your role to Backend Developer.",
     "mandatory_access": [
       {
         "id": "github_repo_access",
         "name": "GitHub repository access",
         "system": "GitHub",
         "reason": "Required for source code work",
-        "mandatory": true
+        "mandatory": true,
+        "owner_team": "Engineering Tools",
+        "servicenow_catalog_item_id": "SN-GITHUB-REPO",
+        "sort_order": 10
       }
     ],
     "optional_access": []
-  }
+  },
+  "final_bundle": []
 }
 ```
 
-The frontend should not calculate confidence or choose templates. It should render the backend response.
+For Phase 2, `final_bundle` is initialized to mandatory access only. Optional selection and submission are Phase 3.
+
+## Behavior
+
+| Scenario | Expected |
+|----------|----------|
+| Existing verified user enters another ACF2 ID | Identity remains locked; user is asked to reset chat |
+| Clear role input | Agent queries templates and returns a selected template |
+| Vague role input | Agent asks one focused clarification question and does not update template state |
+| No suitable match | Agent says the role could not be matched yet; no template update is returned |
+| Bedrock outage | Backend returns explicit Bedrock-unavailable message |
 
 ## Out Of Scope For Phase 2
 
@@ -151,24 +100,17 @@ The frontend should not calculate confidence or choose templates. It should rend
 - Privilege Guard
 - Admin ratification dashboard
 
-## How To Test When Built
+## How To Verify
 
-| Scenario | Expected |
-|----------|----------|
-| `ARUN01` then `I am a backend developer` | Backend returns a relevant template with confidence and reasoning |
-| `ARUN01` then `I do backend stuff` | Agent asks a clarifying question before matching |
-| `ARUN01` then gibberish | Agent asks the user to clarify without crashing |
-| `SARA03` with a role that has no suitable template | Backend returns `no_match: true` and does not write `user_designations` |
-| Existing verified user enters another ACF2 ID | Phase 1 identity lock remains active; Phase 2 does not switch identity |
-
-Verification commands:
+Backend:
 
 ```bash
 cd backend
 python -m unittest discover -s tests
+python -m compileall src mcp_server scripts tests
 ```
 
-If frontend rendering changes:
+Frontend:
 
 ```bash
 cd frontend
@@ -176,10 +118,17 @@ npm run lint
 npm run build
 ```
 
+Seed:
+
+```bash
+cd backend
+python scripts/seed_sqlite.py
+```
+
 ## Decisions Made
 
-- Phase 2 uses tool-query matching over normalized SQLite tables.
+- Phase 2 uses Bedrock reasoning plus tool-use queries over normalized SQLite tables.
 - No RAG, embeddings, pgvector, Ollama, Supabase, or context-stuffed template catalog.
 - The frontend remains a renderer of backend-selected data.
-- `user_designations` is updated only after a confident/confirmed match.
-- No-match handling is marked in Phase 2 but admin ratification remains Phase 6.
+- `user_designations` is updated only when a selected template was built from returned role/access rows.
+- No-match/admin ratification remains Phase 6.

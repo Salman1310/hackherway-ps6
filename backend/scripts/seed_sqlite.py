@@ -1,19 +1,17 @@
 """
-Seed SQLite DB — HackHERway PS6
+Seed SQLite DB - HackHERway PS6.
 
-Creates all tables and seeds:
-  - 3 demo users (ARUN01, NEHA02, SARA03)
-  - 8 designation templates (role access bundles)
-  - dangerous_combinations (Privilege Guard data)
-  - privilege_edges for NEHA02 (triggers Privilege Guard in Phase 4)
-  - synthetic approval_events for Risk Scorer (ARUN01 scores ~78)
-  - approver_routing (all → Teams webhook for demo)
+Phase 0B normalized schema:
+  - 3 demo users: ARUN01, NEHA02, SARA03
+  - 8 role designations
+  - role_access_items rows for every mandatory and optional access item
+  - user_designations for ARUN01 and NEHA02 only
+  - dangerous_combinations, privilege_edges, approval_events, approver_routing
 
-Usage (from backend/ folder):
+Usage, from backend/:
     python scripts/seed_sqlite.py
 """
 
-import json
 import os
 import sqlite3
 import uuid
@@ -22,6 +20,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).parent.parent / ".env")
 except ModuleNotFoundError:
     pass
@@ -39,10 +38,27 @@ def ts(year: int, month: int, day: int, hour: int = 10, minute: int = 0) -> int:
     return int(datetime(year, month, day, hour, minute, tzinfo=timezone.utc).timestamp())
 
 
-# ── Full Schema ───────────────────────────────────────────────────────────────
-
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
+PRAGMA foreign_keys = OFF;
+
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS conversations;
+DROP TABLE IF EXISTS template_drafts;
+DROP TABLE IF EXISTS dangerous_combinations;
+DROP TABLE IF EXISTS privilege_edges;
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS approver_routing;
+DROP TABLE IF EXISTS approval_events;
+DROP TABLE IF EXISTS access_requests;
+DROP TABLE IF EXISTS ritm_requests;
+DROP TABLE IF EXISTS role_access_items;
+DROP TABLE IF EXISTS user_designations;
+DROP TABLE IF EXISTS designations;
+DROP TABLE IF EXISTS users;
+
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE users (
     acf2_id         TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
     team            TEXT,
@@ -51,17 +67,38 @@ CREATE TABLE IF NOT EXISTS users (
     employment_type TEXT
 );
 
-CREATE TABLE IF NOT EXISTS designations (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    description     TEXT,
-    team_hint       TEXT,
-    dept_hint       TEXT,
-    mandatory_items TEXT NOT NULL,
-    optional_items  TEXT NOT NULL
+CREATE TABLE designations (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    description TEXT,
+    team_hint   TEXT,
+    dept_hint   TEXT
 );
 
-CREATE TABLE IF NOT EXISTS access_requests (
+CREATE TABLE user_designations (
+    acf2_id        TEXT PRIMARY KEY,
+    designation_id TEXT NOT NULL,
+    assigned_at    INTEGER NOT NULL,
+    source         TEXT NOT NULL,
+    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id),
+    FOREIGN KEY(designation_id) REFERENCES designations(id)
+);
+
+CREATE TABLE role_access_items (
+    id                         TEXT PRIMARY KEY,
+    designation_id             TEXT NOT NULL,
+    access_item                TEXT NOT NULL,
+    display_name               TEXT,
+    system                     TEXT,
+    description                TEXT,
+    mandatory                  INTEGER NOT NULL CHECK(mandatory IN (0, 1)),
+    owner_team                 TEXT,
+    servicenow_catalog_item_id TEXT,
+    sort_order                 INTEGER,
+    FOREIGN KEY(designation_id) REFERENCES designations(id)
+);
+
+CREATE TABLE access_requests (
     id               TEXT PRIMARY KEY,
     acf2_id          TEXT NOT NULL,
     designation_id   TEXT,
@@ -71,10 +108,11 @@ CREATE TABLE IF NOT EXISTS access_requests (
     status           TEXT DEFAULT 'pending',
     servicenow_ritm  TEXT,
     created_at       INTEGER NOT NULL,
-    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
+    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id),
+    FOREIGN KEY(designation_id) REFERENCES designations(id)
 );
 
-CREATE TABLE IF NOT EXISTS approval_events (
+CREATE TABLE approval_events (
     id                TEXT PRIMARY KEY,
     access_request_id TEXT,
     acf2_id           TEXT NOT NULL,
@@ -85,10 +123,11 @@ CREATE TABLE IF NOT EXISTS approval_events (
     status            TEXT DEFAULT 'pending',
     submitted_at      INTEGER NOT NULL,
     resolved_at       INTEGER,
-    off_hours         INTEGER DEFAULT 0
+    off_hours         INTEGER DEFAULT 0,
+    FOREIGN KEY(access_request_id) REFERENCES access_requests(id)
 );
 
-CREATE TABLE IF NOT EXISTS approver_routing (
+CREATE TABLE approver_routing (
     id                TEXT PRIMARY KEY,
     access_item       TEXT NOT NULL,
     approver_name     TEXT,
@@ -97,7 +136,7 @@ CREATE TABLE IF NOT EXISTS approver_routing (
     team              TEXT
 );
 
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE audit_log (
     id                TEXT PRIMARY KEY,
     acf2_id           TEXT,
     access_request_id TEXT,
@@ -106,7 +145,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at        INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS privilege_edges (
+CREATE TABLE privilege_edges (
     id          TEXT PRIMARY KEY,
     acf2_id     TEXT NOT NULL,
     access_item TEXT NOT NULL,
@@ -115,7 +154,7 @@ CREATE TABLE IF NOT EXISTS privilege_edges (
     FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
 );
 
-CREATE TABLE IF NOT EXISTS dangerous_combinations (
+CREATE TABLE dangerous_combinations (
     id            TEXT PRIMARY KEY,
     access_item_a TEXT NOT NULL,
     access_item_b TEXT NOT NULL,
@@ -123,23 +162,25 @@ CREATE TABLE IF NOT EXISTS dangerous_combinations (
     reason        TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS template_drafts (
+CREATE TABLE template_drafts (
     id             TEXT PRIMARY KEY,
     acf2_id        TEXT NOT NULL,
     proposed_name  TEXT,
     proposed_items TEXT,
     status         TEXT DEFAULT 'pending_ratification',
-    created_at     INTEGER NOT NULL
+    created_at     INTEGER NOT NULL,
+    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
 );
 
-CREATE TABLE IF NOT EXISTS conversations (
+CREATE TABLE conversations (
     id         TEXT PRIMARY KEY,
     acf2_id    TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
 );
 
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE messages (
     id              TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     role            TEXT NOT NULL CHECK(role IN ('user', 'bot')),
@@ -149,165 +190,254 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 """
 
-# ── Demo Users ────────────────────────────────────────────────────────────────
 
 USERS = [
-    ("ARUN01", "Arun Mehta",  "Cloud Infrastructure", "Raj Kumar",   "Technology", "full-time"),
-    ("NEHA02", "Neha Kapoor", "Finance Analytics",    "Deepa Menon", "Finance",    "contract"),
-    ("SARA03", "Sara Chen",   "TBD",                  "TBD",         "TBD",        "full-time"),
+    ("ARUN01", "Arun Mehta", "Cloud Infrastructure", "Raj Kumar", "Technology", "full-time"),
+    ("NEHA02", "Neha Kapoor", "Finance Analytics", "Deepa Menon", "Finance", "contract"),
+    ("SARA03", "Sara Chen", "TBD", "TBD", "TBD", "full-time"),
 ]
-
-RETIRED_IDS = ("RIYA001", "JOHN002", "PRIYA003", "SAM004")
-
-# ── Designation Templates (8) ─────────────────────────────────────────────────
-# Context stuffing: all 8 templates loaded into agent system prompt.
-# Agent does fuzzy matching — SQL not used for template retrieval.
 
 DESIGNATIONS = [
     {
         "id": "backend_developer",
-        "name": "Backend Developer",
+        "title": "Backend Developer",
         "description": "Software engineer building server-side services and APIs",
         "team_hint": "backend, payments, engineering, services, api",
         "dept_hint": "technology",
-        "mandatory_items": json.dumps([
+    },
+    {
+        "id": "devops_cloud_engineer",
+        "title": "DevOps / Cloud Engineer",
+        "description": "Engineer managing cloud infrastructure, CI/CD pipelines, and platform operations",
+        "team_hint": "cloud infrastructure, devops, platform, site reliability, sre",
+        "dept_hint": "technology",
+    },
+    {
+        "id": "data_analyst",
+        "title": "Data Analyst",
+        "description": "Analyst working with data pipelines, reporting, and business intelligence",
+        "team_hint": "analytics, data, reporting, business intelligence, bi",
+        "dept_hint": "technology, finance, operations",
+    },
+    {
+        "id": "finance_analyst",
+        "title": "Finance Analyst",
+        "description": "Analyst working with financial data, reporting, and compliance systems",
+        "team_hint": "finance analytics, finance, actuarial, risk, investment",
+        "dept_hint": "finance",
+    },
+    {
+        "id": "intern",
+        "title": "Intern",
+        "description": "Intern with restricted access to non-production environments only",
+        "team_hint": "any",
+        "dept_hint": "any",
+    },
+    {
+        "id": "manager_team_lead",
+        "title": "Manager / Team Lead",
+        "description": "People manager or technical lead with team oversight access",
+        "team_hint": "any",
+        "dept_hint": "any",
+    },
+    {
+        "id": "auditor",
+        "title": "Auditor",
+        "description": "Internal or external auditor with read-only access to compliance data",
+        "team_hint": "compliance, audit, risk, internal audit, regulatory",
+        "dept_hint": "any",
+    },
+    {
+        "id": "contractor",
+        "title": "Contractor",
+        "description": "External contractor with limited, scoped access per project",
+        "team_hint": "any",
+        "dept_hint": "any",
+    },
+]
+
+DESIGNATION_ACCESS = {
+    "backend_developer": {
+        "mandatory": [
             "github_repo_access",
             "jira_project_access",
             "npe_db_read",
             "npe_environment",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "prod_db_read",
             "cyberark_pam",
             "github_copilot",
             "aws_dev_console",
-        ]),
+        ],
     },
-    {
-        "id": "devops_cloud_engineer",
-        "name": "DevOps / Cloud Engineer",
-        "description": "Engineer managing cloud infrastructure, CI/CD pipelines, and platform operations",
-        "team_hint": "cloud infrastructure, devops, platform, site reliability, sre",
-        "dept_hint": "technology",
-        "mandatory_items": json.dumps([
+    "devops_cloud_engineer": {
+        "mandatory": [
             "github_repo_access",
             "jira_project_access",
             "aws_restricted_console",
             "terraform_state_access",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "aws_prod_admin",
             "pagerduty",
             "cyberark_pam",
             "deploy_pipeline_write",
-        ]),
+        ],
     },
-    {
-        "id": "data_analyst",
-        "name": "Data Analyst",
-        "description": "Analyst working with data pipelines, reporting, and business intelligence",
-        "team_hint": "analytics, data, reporting, business intelligence, bi",
-        "dept_hint": "technology, finance, operations",
-        "mandatory_items": json.dumps([
+    "data_analyst": {
+        "mandatory": [
             "data_warehouse_read",
             "jira_project_access",
             "reporting_tools",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "prod_db_read",
             "extended_schema_access",
             "python_notebook_access",
-        ]),
+        ],
     },
-    {
-        "id": "finance_analyst",
-        "name": "Finance Analyst",
-        "description": "Analyst working with financial data, reporting, and compliance systems",
-        "team_hint": "finance analytics, finance, actuarial, risk, investment",
-        "dept_hint": "finance",
-        "mandatory_items": json.dumps([
+    "finance_analyst": {
+        "mandatory": [
             "finance_systems_read",
             "jira_project_access",
             "sap_view",
             "finance_data_read",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "finance_systems_write",
             "external_reporting_api",
-        ]),
+        ],
     },
-    {
-        "id": "intern",
-        "name": "Intern",
-        "description": "Intern with restricted access to non-production environments only",
-        "team_hint": "any",
-        "dept_hint": "any",
-        "mandatory_items": json.dumps([
+    "intern": {
+        "mandatory": [
             "jira_project_access",
             "internal_wiki",
             "npe_environment",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "github_repo_access_readonly",
             "npe_db_read",
-        ]),
+        ],
     },
-    {
-        "id": "manager_team_lead",
-        "name": "Manager / Team Lead",
-        "description": "People manager or technical lead with team oversight access",
-        "team_hint": "any",
-        "dept_hint": "any",
-        "mandatory_items": json.dumps([
+    "manager_team_lead": {
+        "mandatory": [
             "github_repo_access",
             "jira_admin",
             "team_management_dashboard",
             "org_chart_access",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "admin_console_read",
             "budget_reporting",
             "hr_system_read",
-        ]),
+        ],
     },
-    {
-        "id": "auditor",
-        "name": "Auditor",
-        "description": "Internal or external auditor with read-only access to compliance data",
-        "team_hint": "compliance, audit, risk, internal audit, regulatory",
-        "dept_hint": "any",
-        "mandatory_items": json.dumps([
+    "auditor": {
+        "mandatory": [
             "audit_log_read",
             "compliance_reporting",
             "jira_project_access_readonly",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "extended_audit_scope",
             "finance_data_read",
-        ]),
+        ],
     },
-    {
-        "id": "contractor",
-        "name": "Contractor",
-        "description": "External contractor with limited, scoped access per project",
-        "team_hint": "any",
-        "dept_hint": "any",
-        "mandatory_items": json.dumps([
+    "contractor": {
+        "mandatory": [
             "jira_project_access",
             "nda_systems",
             "contractor_vpn",
-        ]),
-        "optional_items": json.dumps([
+        ],
+        "optional": [
             "github_repo_access_readonly",
             "npe_environment",
             "reporting_tools",
-        ]),
+        ],
+    },
+}
+
+ACCESS_CATALOG = {
+    "github_repo_access": ("GitHub repository access", "GitHub", "Required for source code work", "Engineering Tools"),
+    "jira_project_access": ("Jira project access", "Jira", "Required for delivery tracking and assigned work", "Agile Tools"),
+    "npe_db_read": ("Non-production database read", "Database", "Read access for development and test data", "Database Operations"),
+    "npe_environment": ("Non-production environment", "Cloud", "Access to development and test environments", "Cloud Platform"),
+    "prod_db_read": ("Production database read", "Database", "Read-only access to production data where approved", "Database Operations"),
+    "prod_db_write": ("Production database write", "Database", "Write access to production data", "Database Operations"),
+    "cyberark_pam": ("CyberArk PAM", "CyberArk", "Privileged session checkout for approved systems", "Identity Security"),
+    "github_copilot": ("GitHub Copilot", "GitHub", "Optional coding assistant for engineering work", "Engineering Tools"),
+    "aws_dev_console": ("AWS development console", "AWS", "Console access to development AWS accounts", "Cloud Platform"),
+    "aws_restricted_console": ("AWS restricted console", "AWS", "Restricted console access for platform operations", "Cloud Platform"),
+    "terraform_state_access": ("Terraform state access", "Terraform", "Access to infrastructure state files", "Cloud Platform"),
+    "aws_prod_admin": ("AWS production admin", "AWS", "Elevated production cloud administration", "Cloud Platform"),
+    "pagerduty": ("PagerDuty", "PagerDuty", "On-call alerting and incident response access", "Service Reliability"),
+    "deploy_pipeline_write": ("Deploy pipeline write", "CI/CD", "Permission to update deployment pipelines", "DevOps Platform"),
+    "data_warehouse_read": ("Data warehouse read", "Data Warehouse", "Read access to analytics warehouse datasets", "Data Platform"),
+    "reporting_tools": ("Reporting tools", "BI", "Access to reporting and dashboard tools", "Business Intelligence"),
+    "extended_schema_access": ("Extended schema access", "Data Warehouse", "Expanded analytics schema visibility", "Data Platform"),
+    "python_notebook_access": ("Python notebook access", "Notebook", "Notebook workspace access for analysis", "Data Platform"),
+    "finance_systems_read": ("Finance systems read", "Finance Systems", "Read-only access to financial systems", "Finance Technology"),
+    "finance_systems_write": ("Finance systems write", "Finance Systems", "Write access to financial systems", "Finance Technology"),
+    "sap_view": ("SAP view", "SAP", "Read access for SAP financial records", "Finance Technology"),
+    "finance_data_read": ("Finance data read", "Finance Data", "Read access to controlled finance datasets", "Finance Data Governance"),
+    "external_reporting_api": ("External reporting API", "Reporting API", "API access for external reporting integrations", "Finance Technology"),
+    "internal_wiki": ("Internal wiki", "Confluence", "Access to internal documentation", "Knowledge Management"),
+    "github_repo_access_readonly": ("GitHub repository read-only", "GitHub", "Read-only source repository access", "Engineering Tools"),
+    "jira_admin": ("Jira admin", "Jira", "Administrative access for Jira projects", "Agile Tools"),
+    "team_management_dashboard": ("Team management dashboard", "Management Portal", "Team delivery and staffing dashboard access", "People Systems"),
+    "org_chart_access": ("Organization chart access", "Workday", "Organization structure lookup access", "People Systems"),
+    "admin_console_read": ("Admin console read", "Admin Portal", "Read-only administrative console visibility", "Platform Operations"),
+    "budget_reporting": ("Budget reporting", "Finance Reporting", "Budget dashboard and forecast visibility", "Finance Technology"),
+    "hr_system_read": ("HR system read", "Workday", "Read-only HR context for team management", "People Systems"),
+    "audit_log_read": ("Audit log read", "Audit Platform", "Read-only access to audit evidence", "Compliance Technology"),
+    "compliance_reporting": ("Compliance reporting", "Compliance Platform", "Access to compliance reports", "Compliance Technology"),
+    "jira_project_access_readonly": ("Jira project read-only", "Jira", "Read-only project tracking access", "Agile Tools"),
+    "extended_audit_scope": ("Extended audit scope", "Audit Platform", "Expanded read-only audit evidence access", "Compliance Technology"),
+    "nda_systems": ("NDA systems", "Legal Portal", "Access to contractor agreement systems", "Legal Operations"),
+    "contractor_vpn": ("Contractor VPN", "VPN", "Network access scoped for external contractors", "Network Operations"),
+}
+
+
+def catalog_id(access_item: str) -> str:
+    return "SN-" + access_item.upper().replace("_", "-")
+
+
+def role_access_rows():
+    for designation_id, groups in DESIGNATION_ACCESS.items():
+        order = 10
+        for mandatory, items in ((1, groups["mandatory"]), (0, groups["optional"])):
+            for access_item in items:
+                display_name, system, description, owner_team = ACCESS_CATALOG[access_item]
+                yield {
+                    "id": f"{designation_id}:{access_item}",
+                    "designation_id": designation_id,
+                    "access_item": access_item,
+                    "display_name": display_name,
+                    "system": system,
+                    "description": description,
+                    "mandatory": mandatory,
+                    "owner_team": owner_team,
+                    "servicenow_catalog_item_id": catalog_id(access_item),
+                    "sort_order": order,
+                }
+                order += 10
+
+
+USER_DESIGNATIONS = [
+    {
+        "acf2_id": "ARUN01",
+        "designation_id": "devops_cloud_engineer",
+        "assigned_at": ts(2026, 4, 30),
+        "source": "seed",
+    },
+    {
+        "acf2_id": "NEHA02",
+        "designation_id": "finance_analyst",
+        "assigned_at": ts(2026, 4, 30),
+        "source": "seed",
     },
 ]
-
-# ── Dangerous Combinations ────────────────────────────────────────────────────
-# Privilege Guard (Phase 4) checks user's privilege_edges + requested items
-# against this table. Severity: HIGH = warn + confirm, CRITICAL = warn + auto-escalate.
 
 DANGEROUS_COMBINATIONS = [
     {
@@ -315,67 +445,37 @@ DANGEROUS_COMBINATIONS = [
         "access_item_a": "prod_db_write",
         "access_item_b": "deploy_pipeline_write",
         "severity": "CRITICAL",
-        "reason": (
-            "Write access to the production database combined with deploy pipeline "
-            "write access enables unauthorized code deployment with simultaneous "
-            "data manipulation — full production system compromise."
-        ),
+        "reason": "Production database write plus deploy pipeline write can enable unauthorized production changes.",
     },
     {
         "id": "danger_002",
         "access_item_a": "prod_db_read",
         "access_item_b": "deploy_pipeline_write",
         "severity": "HIGH",
-        "reason": (
-            "Read access to production data combined with deploy pipeline write "
-            "creates a data exfiltration vector — production data can be extracted "
-            "and pushed via a malicious deployment."
-        ),
+        "reason": "Production data read plus deploy pipeline write creates a data exfiltration path.",
     },
     {
         "id": "danger_003",
         "access_item_a": "finance_data_read",
         "access_item_b": "external_reporting_api",
         "severity": "HIGH",
-        "reason": (
-            "Finance data read access combined with external reporting API write "
-            "creates a finance data exfiltration vector to external systems. "
-            "Requires explicit CISO approval."
-        ),
+        "reason": "Finance data read plus external reporting API can expose controlled financial data.",
     },
     {
         "id": "danger_004",
         "access_item_a": "finance_systems_write",
         "access_item_b": "external_reporting_api",
         "severity": "CRITICAL",
-        "reason": (
-            "Write access to finance systems combined with external reporting API "
-            "enables unauthorized modification of financial records and exfiltration "
-            "to external systems — regulatory and financial integrity risk."
-        ),
+        "reason": "Finance write access plus external reporting can affect financial integrity and reporting.",
     },
     {
         "id": "danger_005",
         "access_item_a": "npe_environment",
         "access_item_b": "prod_db_write",
         "severity": "HIGH",
-        "reason": (
-            "NPE environment access combined with production database write "
-            "violates the non-production / production access boundary and "
-            "increases risk of accidental or malicious production data modification."
-        ),
+        "reason": "Non-production access plus production database write violates environment separation.",
     },
 ]
-
-# ── Privilege Edges for NEHA02 ────────────────────────────────────────────────
-# NEHA02 already has finance_data_read + prod_db_read from a previous role.
-#
-# Demo trigger path (Phase 4):
-#   NEHA02 requests Finance Analyst template.
-#   Mandatory items include finance_data_read (she already has it — overlap OK).
-#   Optional items include external_reporting_api.
-#   Privilege Guard: finance_data_read (existing) + external_reporting_api (requested)
-#   → matches danger_003 → severity HIGH → warning fires before submission.
 
 PRIVILEGE_EDGES = [
     {
@@ -394,25 +494,6 @@ PRIVILEGE_EDGES = [
     },
 ]
 
-# ── Approver Routing ──────────────────────────────────────────────────────────
-# All items route to a single Teams webhook for demo.
-# TEAMS_WEBHOOK_URL is read from .env (empty in .env.example — fill in Phase 5).
-
-_ALL_ACCESS_ITEMS = [
-    "github_repo_access", "jira_project_access", "npe_db_read", "npe_environment",
-    "prod_db_read", "prod_db_write", "cyberark_pam", "github_copilot",
-    "aws_dev_console", "aws_restricted_console", "terraform_state_access",
-    "aws_prod_admin", "pagerduty", "deploy_pipeline_write",
-    "data_warehouse_read", "reporting_tools", "extended_schema_access",
-    "python_notebook_access", "finance_systems_read", "finance_systems_write",
-    "sap_view", "finance_data_read", "external_reporting_api",
-    "internal_wiki", "github_repo_access_readonly", "jira_admin",
-    "team_management_dashboard", "org_chart_access", "admin_console_read",
-    "budget_reporting", "hr_system_read", "audit_log_read",
-    "compliance_reporting", "jira_project_access_readonly", "extended_audit_scope",
-    "nda_systems", "contractor_vpn",
-]
-
 APPROVER_ROUTING = [
     {
         "id": str(uuid.uuid4()),
@@ -422,22 +503,9 @@ APPROVER_ROUTING = [
         "teams_webhook_url": TEAMS_WEBHOOK,
         "team": "all",
     }
-    for item in _ALL_ACCESS_ITEMS
+    for item in ACCESS_CATALOG.keys()
 ]
 
-# ── Historical Approval Events for Risk Scorer ────────────────────────────────
-# Risk Scorer (Phase 4) queries approval_events for role baseline and ARUN01
-# anomalies, then computes a 0-100 score.
-#
-# Baseline: 10 normal DevOps events from other historical users — all approved,
-#           all business hours, all standard items.
-#
-# ARUN01 anomalies that drive score to ~78:
-#   1. prod_db_write at 2:17 AM          → REJECTED (off-hours + wrong item for role)
-#   2. deploy_pipeline_write at 2:19 AM  → REJECTED (velocity: 2 min gap + off-hours)
-#   3. prod_db_write again 3 days later  → REJECTED (high re-request velocity)
-#   4. aws_prod_admin with escalation    → APPROVED (manager override)
-#   5. cyberark_pam normal request       → APPROVED
 
 def _event(acf2_id, role, team, item, approver, status, submitted_at, resolved_at, off_hours=0):
     return {
@@ -454,164 +522,117 @@ def _event(acf2_id, role, team, item, approver, status, submitted_at, resolved_a
         "off_hours": off_hours,
     }
 
+
 APPROVAL_EVENTS = [
-    # ── Baseline: normal Cloud Infra / DevOps events from historical users ──
-    _event("HIST001", "devops_cloud_engineer", "Cloud Infrastructure",
-           "github_repo_access", "Raj Kumar", "approved",
-           ts(2025, 1, 5, 11), ts(2025, 1, 5, 14)),
-    _event("HIST002", "devops_cloud_engineer", "Cloud Infrastructure",
-           "aws_restricted_console", "Raj Kumar", "approved",
-           ts(2025, 1, 8, 14), ts(2025, 1, 8, 16)),
-    _event("HIST003", "devops_cloud_engineer", "Cloud Infrastructure",
-           "terraform_state_access", "Raj Kumar", "approved",
-           ts(2025, 1, 10, 9), ts(2025, 1, 10, 11)),
-    _event("HIST004", "devops_cloud_engineer", "Cloud Infrastructure",
-           "jira_project_access", "Raj Kumar", "approved",
-           ts(2025, 1, 14, 13), ts(2025, 1, 14, 15)),
-    _event("HIST005", "devops_cloud_engineer", "Cloud Infrastructure",
-           "pagerduty", "Raj Kumar", "approved",
-           ts(2025, 1, 17, 10), ts(2025, 1, 17, 12)),
-    _event("HIST006", "devops_cloud_engineer", "Cloud Infrastructure",
-           "github_repo_access", "Raj Kumar", "approved",
-           ts(2025, 1, 20, 15), ts(2025, 1, 20, 17)),
-    _event("HIST001", "devops_cloud_engineer", "Cloud Infrastructure",
-           "cyberark_pam", "Raj Kumar", "approved",
-           ts(2025, 1, 22, 11), ts(2025, 1, 22, 14)),
-    _event("HIST002", "devops_cloud_engineer", "Cloud Infrastructure",
-           "jira_project_access", "Raj Kumar", "approved",
-           ts(2025, 1, 24, 14), ts(2025, 1, 24, 16)),
-    _event("HIST003", "devops_cloud_engineer", "Cloud Infrastructure",
-           "terraform_state_access", "Raj Kumar", "approved",
-           ts(2025, 1, 27, 9), ts(2025, 1, 27, 11)),
-    _event("HIST004", "devops_cloud_engineer", "Cloud Infrastructure",
-           "aws_restricted_console", "Raj Kumar", "approved",
-           ts(2025, 1, 29, 16), ts(2025, 1, 29, 17)),
-
-    # ── ARUN01 anomalous events ──
-    # Event 1: prod_db_write at 2:17 AM — unusual item + off-hours → REJECTED
-    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure",
-           "prod_db_write", "Raj Kumar", "rejected",
-           ts(2025, 2, 3, 2, 17), ts(2025, 2, 3, 9, 0), off_hours=1),
-
-    # Event 2: deploy_pipeline_write 2 min later — velocity spike + off-hours → REJECTED
-    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure",
-           "deploy_pipeline_write", "Raj Kumar", "rejected",
-           ts(2025, 2, 3, 2, 19), ts(2025, 2, 3, 9, 5), off_hours=1),
-
-    # Event 3: prod_db_write re-request 3 days later — high velocity re-request → REJECTED
-    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure",
-           "prod_db_write", "Raj Kumar", "rejected",
-           ts(2025, 2, 6, 14, 5), ts(2025, 2, 6, 17, 0)),
-
-    # Event 4: aws_prod_admin — escalation pattern, approved via manager's manager
-    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure",
-           "aws_prod_admin", "Vikram Nair", "approved",
-           ts(2025, 2, 10, 16, 30), ts(2025, 2, 11, 10, 0)),
-
-    # Event 5: cyberark_pam — normal request, approved
-    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure",
-           "cyberark_pam", "Raj Kumar", "approved",
-           ts(2025, 2, 15, 10, 0), ts(2025, 2, 15, 14, 0)),
+    _event("HIST001", "devops_cloud_engineer", "Cloud Infrastructure", "github_repo_access", "Raj Kumar", "approved", ts(2025, 1, 5, 11), ts(2025, 1, 5, 14)),
+    _event("HIST002", "devops_cloud_engineer", "Cloud Infrastructure", "aws_restricted_console", "Raj Kumar", "approved", ts(2025, 1, 8, 14), ts(2025, 1, 8, 16)),
+    _event("HIST003", "devops_cloud_engineer", "Cloud Infrastructure", "terraform_state_access", "Raj Kumar", "approved", ts(2025, 1, 10, 9), ts(2025, 1, 10, 11)),
+    _event("HIST004", "devops_cloud_engineer", "Cloud Infrastructure", "jira_project_access", "Raj Kumar", "approved", ts(2025, 1, 14, 13), ts(2025, 1, 14, 15)),
+    _event("HIST005", "devops_cloud_engineer", "Cloud Infrastructure", "pagerduty", "Raj Kumar", "approved", ts(2025, 1, 17, 10), ts(2025, 1, 17, 12)),
+    _event("HIST006", "devops_cloud_engineer", "Cloud Infrastructure", "github_repo_access", "Raj Kumar", "approved", ts(2025, 1, 20, 15), ts(2025, 1, 20, 17)),
+    _event("HIST001", "devops_cloud_engineer", "Cloud Infrastructure", "cyberark_pam", "Raj Kumar", "approved", ts(2025, 1, 22, 11), ts(2025, 1, 22, 14)),
+    _event("HIST002", "devops_cloud_engineer", "Cloud Infrastructure", "jira_project_access", "Raj Kumar", "approved", ts(2025, 1, 24, 14), ts(2025, 1, 24, 16)),
+    _event("HIST003", "devops_cloud_engineer", "Cloud Infrastructure", "terraform_state_access", "Raj Kumar", "approved", ts(2025, 1, 27, 9), ts(2025, 1, 27, 11)),
+    _event("HIST004", "devops_cloud_engineer", "Cloud Infrastructure", "aws_restricted_console", "Raj Kumar", "approved", ts(2025, 1, 29, 16), ts(2025, 1, 29, 17)),
+    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure", "prod_db_write", "Raj Kumar", "rejected", ts(2025, 2, 3, 2, 17), ts(2025, 2, 3, 9, 0), off_hours=1),
+    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure", "deploy_pipeline_write", "Raj Kumar", "rejected", ts(2025, 2, 3, 2, 19), ts(2025, 2, 3, 9, 5), off_hours=1),
+    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure", "prod_db_write", "Raj Kumar", "rejected", ts(2025, 2, 6, 14, 5), ts(2025, 2, 6, 17, 0)),
+    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure", "aws_prod_admin", "Vikram Nair", "approved", ts(2025, 2, 10, 16, 30), ts(2025, 2, 11, 10, 0)),
+    _event("ARUN01", "devops_cloud_engineer", "Cloud Infrastructure", "cyberark_pam", "Raj Kumar", "approved", ts(2025, 2, 15, 10, 0), ts(2025, 2, 15, 14, 0)),
 ]
 
-
-# ── Main seed ─────────────────────────────────────────────────────────────────
 
 def seed():
     db = sqlite3.connect(DB_PATH)
     db.executescript(SCHEMA)
 
-    # Remove retired demo users from old architecture
-    db.executemany(
-        "DELETE FROM users WHERE acf2_id = ?",
-        [(i,) for i in RETIRED_IDS],
-    )
-
-    # Users
     print("Users:")
-    for (acf2_id, name, team, manager, dept, emp_type) in USERS:
-        db.execute(
-            """INSERT INTO users (acf2_id, name, team, manager, dept, employment_type)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(acf2_id) DO UPDATE SET
-                 name=excluded.name, team=excluded.team,
-                 manager=excluded.manager, dept=excluded.dept,
-                 employment_type=excluded.employment_type""",
-            (acf2_id, name, team, manager, dept, emp_type),
-        )
+    db.executemany(
+        """
+        INSERT INTO users (acf2_id, name, team, manager, dept, employment_type)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        USERS,
+    )
+    for acf2_id, name, *_ in USERS:
         print(f"  seeded: {acf2_id} - {name}")
 
-    # Designation templates
-    print("\nDesignation templates:")
-    for d in DESIGNATIONS:
-        db.execute(
-            """INSERT INTO designations
-               (id, name, description, team_hint, dept_hint, mandatory_items, optional_items)
-               VALUES (:id, :name, :description, :team_hint, :dept_hint, :mandatory_items, :optional_items)
-               ON CONFLICT(id) DO UPDATE SET
-                 name=excluded.name, description=excluded.description,
-                 team_hint=excluded.team_hint, dept_hint=excluded.dept_hint,
-                 mandatory_items=excluded.mandatory_items,
-                 optional_items=excluded.optional_items""",
-            d,
-        )
-        print(f"  template: {d['id']}")
-
-    # Dangerous combinations
-    print("\nDangerous combinations:")
-    db.execute("DELETE FROM dangerous_combinations")
-    for combo in DANGEROUS_COMBINATIONS:
-        db.execute(
-            """INSERT INTO dangerous_combinations
-               (id, access_item_a, access_item_b, severity, reason)
-               VALUES (:id, :access_item_a, :access_item_b, :severity, :reason)""",
-            combo,
-        )
-        print(f"  [{combo['severity']}] {combo['access_item_a']} + {combo['access_item_b']}")
-
-    # Privilege edges for NEHA02
-    print("\nPrivilege edges (NEHA02):")
-    db.execute("DELETE FROM privilege_edges WHERE acf2_id = 'NEHA02'")
-    for edge in PRIVILEGE_EDGES:
-        db.execute(
-            """INSERT INTO privilege_edges (id, acf2_id, access_item, granted_at, granted_by)
-               VALUES (:id, :acf2_id, :access_item, :granted_at, :granted_by)""",
-            edge,
-        )
-        print(f"  edge: NEHA02 -> {edge['access_item']}")
-
-    # Approver routing
-    db.execute("DELETE FROM approver_routing")
-    for route in APPROVER_ROUTING:
-        db.execute(
-            """INSERT INTO approver_routing
-               (id, access_item, approver_name, approver_email, teams_webhook_url, team)
-               VALUES (:id, :access_item, :approver_name, :approver_email, :teams_webhook_url, :team)""",
-            route,
-        )
-    print(f"\nApprover routing: {len(APPROVER_ROUTING)} access items -> Teams webhook")
-
-    # Historical approval events
-    historical_acf2 = ("HIST001", "HIST002", "HIST003", "HIST004", "HIST005",
-                       "HIST006", "ARUN01")
+    print("\nDesignations:")
     db.executemany(
-        "DELETE FROM approval_events WHERE acf2_id = ?",
-        [(i,) for i in historical_acf2],
+        """
+        INSERT INTO designations (id, title, description, team_hint, dept_hint)
+        VALUES (:id, :title, :description, :team_hint, :dept_hint)
+        """,
+        DESIGNATIONS,
     )
-    for event in APPROVAL_EVENTS:
-        db.execute(
-            """INSERT INTO approval_events
-               (id, access_request_id, acf2_id, role, team, access_item,
-                approver, status, submitted_at, resolved_at, off_hours)
-               VALUES (:id, :access_request_id, :acf2_id, :role, :team, :access_item,
-                       :approver, :status, :submitted_at, :resolved_at, :off_hours)""",
-            event,
-        )
-    arun_anomalies = sum(1 for e in APPROVAL_EVENTS if e["acf2_id"] == "ARUN01")
-    baseline_count = len(APPROVAL_EVENTS) - arun_anomalies
-    print(f"\nApproval events:")
-    print(f"  baseline (normal): {baseline_count} events (HIST001-006, devops role)")
-    print(f"  ARUN01 anomalies:  {arun_anomalies} events (2 off-hours, 3 rejections -> score ~78)")
+    for designation in DESIGNATIONS:
+        print(f"  template: {designation['id']}")
+
+    access_rows = list(role_access_rows())
+    db.executemany(
+        """
+        INSERT INTO role_access_items
+          (id, designation_id, access_item, display_name, system, description,
+           mandatory, owner_team, servicenow_catalog_item_id, sort_order)
+        VALUES
+          (:id, :designation_id, :access_item, :display_name, :system, :description,
+           :mandatory, :owner_team, :servicenow_catalog_item_id, :sort_order)
+        """,
+        access_rows,
+    )
+    print(f"\nRole access items: {len(access_rows)} rows")
+
+    db.executemany(
+        """
+        INSERT INTO user_designations (acf2_id, designation_id, assigned_at, source)
+        VALUES (:acf2_id, :designation_id, :assigned_at, :source)
+        """,
+        USER_DESIGNATIONS,
+    )
+    print("User designations: ARUN01 and NEHA02 seeded; SARA03 intentionally unmapped")
+
+    db.executemany(
+        """
+        INSERT INTO dangerous_combinations
+          (id, access_item_a, access_item_b, severity, reason)
+        VALUES (:id, :access_item_a, :access_item_b, :severity, :reason)
+        """,
+        DANGEROUS_COMBINATIONS,
+    )
+    print(f"Dangerous combinations: {len(DANGEROUS_COMBINATIONS)}")
+
+    db.executemany(
+        """
+        INSERT INTO privilege_edges (id, acf2_id, access_item, granted_at, granted_by)
+        VALUES (:id, :acf2_id, :access_item, :granted_at, :granted_by)
+        """,
+        PRIVILEGE_EDGES,
+    )
+    print("Privilege edges: NEHA02 demo edges seeded")
+
+    db.executemany(
+        """
+        INSERT INTO approver_routing
+          (id, access_item, approver_name, approver_email, teams_webhook_url, team)
+        VALUES (:id, :access_item, :approver_name, :approver_email, :teams_webhook_url, :team)
+        """,
+        APPROVER_ROUTING,
+    )
+    print(f"Approver routing: {len(APPROVER_ROUTING)} access items")
+
+    db.executemany(
+        """
+        INSERT INTO approval_events
+          (id, access_request_id, acf2_id, role, team, access_item,
+           approver, status, submitted_at, resolved_at, off_hours)
+        VALUES
+          (:id, :access_request_id, :acf2_id, :role, :team, :access_item,
+           :approver, :status, :submitted_at, :resolved_at, :off_hours)
+        """,
+        APPROVAL_EVENTS,
+    )
+    arun_events = sum(1 for event in APPROVAL_EVENTS if event["acf2_id"] == "ARUN01")
+    print(f"Approval events: {len(APPROVAL_EVENTS)} rows ({arun_events} ARUN01 anomaly rows)")
 
     db.commit()
     db.close()

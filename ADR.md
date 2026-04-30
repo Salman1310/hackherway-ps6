@@ -12,7 +12,7 @@
 |----|-------|--------|--------------|
 | ADR-001 | Overall System Architecture | Accepted | 2026-04-29 |
 | ADR-002 | AI Layer: Single Conversational Agent | Accepted | 2026-04-29 |
-| ADR-003 | Database: SQLite via MCP | Accepted | 2026-04-29 |
+| ADR-003 | Database: SQLite via MCP | Accepted | 2026-04-30 |
 | ADR-004 | Approval Channel: MS Teams Incoming Webhook | Accepted | 2026-04-29 |
 | ADR-005 | External Systems: ServiceNow MCP + Mock Provisioning APIs | Accepted | 2026-04-29 |
 | ADR-006 | D1: Adaptive Persona Learning | Accepted | 2026-04-29 |
@@ -117,28 +117,12 @@ MongoDB Atlas introduced firewall and setup uncertainty. A local database is eno
 ### Decision
 Use SQLite as the hackathon database and access it through the official SQLite MCP server. Application code must not call `sqlite3` directly for feature flows; direct SQLite is permitted only for local seed/setup scripts.
 
-Current Phase 0A tables:
-
-```text
-users
-designations                 # Phase 0A JSON-template shape
-access_requests
-approval_events
-approver_routing
-audit_log
-privilege_edges
-dangerous_combinations
-template_drafts
-conversations
-messages
-```
-
-Target Phase 0B role/access tables before Phase 2:
+Current tables:
 
 ```text
 users
 user_designations
-designations                 # id/title/description only
+designations                 # id/title/description/team and department hints
 role_access_items            # one access item per row
 access_requests
 approval_events
@@ -283,9 +267,9 @@ If Bedrock fails during the demo, the backend should return a graceful user-faci
 **Supersedes:** Previous ADR-011 context-stuffing decision.
 
 ### Decision
-Phase 2 will use Bedrock reasoning with tool-use queries over normalized SQLite role/access tables. Do not inject the full designation catalog into the system prompt.
+Phase 2 uses Bedrock reasoning with tool-use queries over normalized SQLite role/access tables. Do not inject the full designation catalog into the system prompt.
 
-The target schema is:
+The schema is:
 
 ```text
 designations(id, title, description, team_hint, dept_hint)
@@ -293,23 +277,23 @@ role_access_items(id, designation_id, access_item, display_name, system, descrip
 user_designations(acf2_id, designation_id, assigned_at, source)
 ```
 
-The agent should query candidate designations and their access items through `query_db`, reason over those results, and return structured selected-template data to the frontend.
+The agent queries candidate designations and their access items through `query_db`, reasons over those results, and returns structured selected-template data to the frontend. The backend then shapes `resolved_role`, `selected_template`, and mandatory `final_bundle` for session state.
 
 Do not build RAG/vector search for the hackathon.
 
 Match behavior:
 
 ```text
-confidence > 0.95       -> serve direct match
-0.70 <= confidence <= .95 -> return top 3 for user selection
-confidence < 0.70       -> no-match flow and template draft
+clear/confident match -> serve direct match and upsert user_designations
+vague role input      -> ask one focused clarifying question
+no suitable match     -> explain that admin review is needed later
 ```
 
 ### Consequences
 - Keeps the system prompt smaller and less brittle than full context stuffing.
 - Makes mandatory and optional access rows queryable for Phase 3.
 - Gives each access item a place to store owner teams and ServiceNow catalog IDs.
-- Requires Phase 0B schema rework before Phase 2 implementation starts.
+- Phase 0B schema rework is complete and Phase 2 is built on top of it.
 
 ---
 
@@ -319,7 +303,7 @@ confidence < 0.70       -> no-match flow and template draft
 
 | Capability | Status | Phase |
 |------------|--------|-------|
-| Role Resolver | Build | Phase 2 |
+| Role Resolver | Built | Phase 2 |
 | Risk Scorer | Build | Phase 4 |
 | Privilege Guard | Build | Phase 4 |
 | Status Tracker | Build | Phase 6 |
@@ -416,4 +400,4 @@ __pycache__/
 
 ---
 
-*Last updated: 2026-04-29*
+*Last updated: 2026-04-30*

@@ -13,11 +13,11 @@ Goal: replace manual, fragmented access request workflows with an AI-powered cha
 | Phase | Status |
 |-------|--------|
 | Phase 0A - Foundation shipped | Done |
-| Phase 0B - Normalized role/access schema rework | Next |
+| Phase 0B - Normalized role/access schema rework | Done |
 | Phase 1 - Agent identity verification | Done |
-| Phase 2 - Role resolver + template matching | Planned after Phase 0B |
+| Phase 2 - Role resolver + template matching | Done |
 
-Do not start Phase 2 until Phase 0B is complete.
+Do not start Phase 3 until Phase 2 is explicitly accepted as the baseline for the next build.
 
 ## Architecture
 
@@ -117,29 +117,9 @@ The agent:
 
 Frontend reset is implemented in the chat header.
 
-## Current Phase 0A Schema
+## Current Schema
 
-The shipped database currently uses a JSON-template designation model:
-
-```text
-users
-designations             # includes mandatory_items and optional_items JSON columns
-access_requests
-approval_events
-approver_routing
-audit_log
-privilege_edges
-dangerous_combinations
-template_drafts
-conversations
-messages
-```
-
-This schema supports Phase 1 but should be reworked before Phase 2.
-
-## Target Phase 0B Schema
-
-Phase 0B should normalize role/access data:
+The shipped database uses the Phase 0B normalized role/access model:
 
 ```text
 users
@@ -156,6 +136,8 @@ template_drafts
 conversations
 messages
 ```
+
+The old Phase 0A JSON template columns are no longer part of the seeded schema.
 
 ### `users`
 
@@ -178,7 +160,7 @@ team_hint TEXT
 dept_hint TEXT
 ```
 
-No `mandatory_items` or `optional_items` JSON columns after Phase 0B.
+No legacy JSON access columns exist on `designations`.
 
 ### `role_access_items`
 
@@ -206,22 +188,28 @@ source TEXT NOT NULL
 
 Seed ARUN01 and NEHA02 mappings. Leave SARA03 unmapped.
 
-## Phase 2 Direction
+## Current Phase 2 Behavior
 
-Phase 2 should use tool-query matching over normalized SQLite tables.
+Phase 2 is built.
+
+The agent:
+
+- continues after identity verification
+- keeps the Phase 1 identity lock active
+- uses Bedrock tool-use to query normalized SQLite tables
+- queries `designations` and `role_access_items`
+- asks a focused clarification question for vague role input
+- returns structured `resolved_role`, `selected_template`, and mandatory `final_bundle`
+- writes confident matches to `user_designations` through MCP `execute_db`
+- keeps replies plain text
 
 Do not context-stuff the full template catalog into the prompt.
 
-The agent should:
+Frontend behavior:
 
-1. Use the locked identity session.
-2. Ask clarifying questions for vague role input.
-3. Query `designations` and `role_access_items`.
-4. Reason over returned rows.
-5. Return structured `resolved_role` and `selected_template`.
-6. Write `user_designations` only after confident/confirmed matching.
-
-Frontend renders backend-selected data only.
+- The right panel renders the backend-selected template.
+- Mandatory and optional items are displayed.
+- No Phase 3 submission or optional-item toggling is implemented yet.
 
 ## Demo Users
 

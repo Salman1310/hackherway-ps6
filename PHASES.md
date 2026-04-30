@@ -36,9 +36,9 @@ User
 
 ## Template Matching Strategy
 
-Phase 2 will use Bedrock reasoning plus tool-use queries over normalized SQLite role/access tables.
+Phase 2 uses Bedrock reasoning plus tool-use queries over normalized SQLite role/access tables.
 
-The agent should query `designations` and `role_access_items` through `query_db`, reason over returned candidate rows, and return structured selected-template data to the frontend. Do not context-stuff all templates into the system prompt.
+The agent queries `designations` and `role_access_items` through `query_db`, reasons over returned candidate rows, and returns structured selected-template data to the frontend. Do not context-stuff all templates into the system prompt.
 
 Confirmed user-to-role mappings are stored in `user_designations`.
 
@@ -47,9 +47,9 @@ Confirmed user-to-role mappings are stored in `user_designations`.
 | Phase | Name | Status |
 |-------|------|--------|
 | 0A | Foundation shipped | Done |
-| 0B | Normalized role/access schema rework | Next |
+| 0B | Normalized role/access schema rework | Done |
 | 1 | Agent Core + Identity Verification | Done |
-| 2 | Role Resolver + Template Matching | Planned after Phase 0B |
+| 2 | Role Resolver + Template Matching | Done |
 | 3 | Template UI + Submission Flow | Not started |
 | 4 | Risk Scorer + Privilege Guard | Not started |
 | 5 | ServiceNow + Teams + Orchestrator | Not started |
@@ -68,7 +68,7 @@ Phase 0A created the current repo foundation:
 - mock Workday, AD, Jira, and SAM APIs
 - logging utility
 - demo users
-- initial JSON-based designation templates
+- normalized designation and role access templates
 - dangerous combinations and privilege edges
 - synthetic approval events for future risk scoring
 
@@ -76,14 +76,9 @@ Phase doc: `docs/phases/phase-00-foundation.md`
 
 ## Phase 0B - Normalized Role/Access Schema Rework
 
-Phase 0B must be completed before Phase 2.
+Status: Done.
 
-Current Phase 0A schema stores access template items as JSON:
-
-```text
-designations.mandatory_items
-designations.optional_items
-```
+Phase 0B replaced the old Phase 0A JSON access template columns with queryable role/access rows.
 
 Target Phase 0B schema:
 
@@ -103,17 +98,17 @@ conversations
 messages
 ```
 
-Required changes:
+Built changes:
 
 | Task | Notes |
 |------|-------|
-| Rework `designations` | Keep id/title/description/team_hint/dept_hint only |
+| Rework `designations` | Keeps id/title/description/team_hint/dept_hint only |
 | Add `role_access_items` | One row per access item with mandatory flag, owner team, display metadata, and ServiceNow catalog item ID |
 | Add `user_designations` | One row per resolved user role |
 | Seed ARUN01 and NEHA02 role mappings | ARUN01 -> devops_cloud_engineer, NEHA02 -> finance_analyst |
 | Leave SARA03 without role mapping | Preserves no-match scenario |
-| Keep existing users, risks, privilege, routing, mock data | Names and access item IDs should remain consistent |
-| Reset local DB cleanly | Delete `backend/hackherway.db` and re-run seed script |
+| Keep existing users, risks, privilege, routing, mock data | Names and access item IDs remain consistent |
+| Reset local DB cleanly | `backend/scripts/seed_sqlite.py` recreates the schema |
 
 Exit criteria:
 
@@ -121,7 +116,7 @@ Exit criteria:
 - `SELECT * FROM users WHERE acf2_id = 'ARUN01'` returns Arun.
 - `SELECT * FROM user_designations WHERE acf2_id = 'ARUN01'` returns a role.
 - `SELECT * FROM role_access_items WHERE designation_id = 'devops_cloud_engineer'` returns individual rows.
-- Phase 1 backend tests still pass.
+- Backend Phase 0B/1/2 tests pass.
 - Workday mock still returns ARUN01.
 
 ## Phase 1 - Agent Core + Identity Verification
@@ -146,32 +141,32 @@ Phase doc: `docs/phases/phase-01-agent-identity.md`
 
 ## Phase 2 - Role Resolver + Template Matching
 
-Status: Planned after Phase 0B.
+Status: Done.
 
 Goal:
 
-After identity verification, the user describes their role. The agent asks focused clarification questions if needed, queries the normalized role/access catalog, chooses the best template, and returns structured data for the frontend right panel.
+After identity verification, the user describes their role. The agent asks focused clarification questions if needed, queries the normalized role/access catalog, chooses the best template, writes a confident role mapping, and returns structured data for the frontend right panel.
 
 Tasks:
 
 | Task | Notes |
 |------|-------|
-| Extend agent beyond Phase 1 placeholder | Continue after `session.acf2_id` is set |
-| Add role-resolution prompt rules | Resolve role, seniority, employment type, team, and department |
-| Query `designations` and `role_access_items` | Use tool-use, not full catalog context stuffing |
-| Return structured selected-template data | Include confidence, reasoning, mandatory access, optional access |
-| Support top-3 candidates | For medium confidence matches |
-| Write confirmed role mapping | Insert/update `user_designations` after confident confirmation |
-| Preserve no-match path | Return `no_match: true` for low confidence; no write to `user_designations` |
-| Add tests | Direct match, vague role, gibberish, no-match, identity lock |
+| Extend agent beyond Phase 1 placeholder | Continues after `session.acf2_id` is set |
+| Add role-resolution prompt rules | Resolves role through Bedrock with normalized table awareness |
+| Query `designations` and `role_access_items` | Uses tool-use, not full catalog context stuffing |
+| Return structured selected-template data | Includes confidence, reasoning, mandatory access, optional access |
+| Write confident role mapping | Inserts/updates `user_designations` after a selected template is built |
+| Preserve no-match path | Clarifies or responds no-match without updating template state |
+| Render selected template | Right panel displays backend-selected mandatory and optional access |
+| Add tests | Direct match, vague role, no-match, identity lock, prompt rules |
 
 Exit criteria:
 
 - ARUN01 -> identity -> "I am a backend developer" returns a matching template.
 - Vague role input triggers clarification.
-- Gibberish input re-prompts gracefully.
-- Low-confidence SARA03 flow returns `no_match: true`.
-- Backend logs show tool queries and matching reasoning.
+- Gibberish/no-match input re-prompts or routes to later admin review without crashing.
+- Existing identity lock remains active during Phase 2.
+- Backend logs show tool queries and matching state.
 
 Phase doc: `docs/phases/phase-02-role-resolver.md`
 

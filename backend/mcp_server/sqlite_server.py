@@ -52,8 +52,9 @@ def query_db(sql: str) -> str:
     check privilege_edges, read designations, query approval_events, etc.
 
     Schema tables available:
-      users, designations, access_requests, approval_events, approver_routing,
-      audit_log, privilege_edges, dangerous_combinations, template_drafts,
+      users, user_designations, designations, role_access_items,
+      access_requests, approval_events, approver_routing, audit_log,
+      privilege_edges, dangerous_combinations, template_drafts,
       conversations, messages
 
     Args:
@@ -66,6 +67,7 @@ def query_db(sql: str) -> str:
     Examples:
         query_db("SELECT * FROM users WHERE acf2_id = 'ARUN01'")
         query_db("SELECT * FROM designations")
+        query_db("SELECT * FROM role_access_items WHERE designation_id = 'backend_developer'")
         query_db("SELECT * FROM privilege_edges WHERE acf2_id = 'NEHA02'")
         query_db("SELECT * FROM dangerous_combinations")
     """

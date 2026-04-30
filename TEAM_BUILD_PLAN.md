@@ -24,8 +24,9 @@ Future integrations: ServiceNow MCP or fallback, MS Teams webhook
 | Backend FastAPI app | Built |
 | Phase 0A foundation | Built |
 | Phase 1 identity verification | Built |
-| Phase 0B normalized schema | Next |
-| Phase 2 role resolver | Planned after Phase 0B |
+| Phase 0B normalized schema | Built |
+| Phase 2 role resolver | Built |
+| Phase 3 submission flow | Next |
 
 Phase 1 currently works around ACF2 identity:
 
@@ -34,6 +35,15 @@ Phase 1 currently works around ACF2 identity:
 - explains ACF2 without giving sample IDs
 - exposes a reset chat control
 - keeps frontend as a thin UI layer
+
+Phase 2 currently works around role/template matching:
+
+- continues after verified identity
+- queries `designations` and `role_access_items` through Bedrock tool-use
+- returns `resolved_role`, `selected_template`, and mandatory `final_bundle`
+- writes confident matches to `user_designations`
+- renders the selected template in the right panel
+- does not submit access requests yet
 
 ## Demo Story
 
@@ -62,9 +72,9 @@ Do not use old planning IDs such as RIYA001, JOHN002, PRIYA003, or SAM004.
 
 ## Build Order
 
-### Step 1 - Finish Phase 0B
+### Step 1 - Phase 0B
 
-Phase 0B is the next required build step.
+Status: Built.
 
 Goal: replace JSON-based designation access lists with normalized role/access tables.
 
@@ -86,32 +96,34 @@ conversations
 messages
 ```
 
-Key work:
+Built work:
 
-- remove `mandatory_items` and `optional_items` JSON columns from `designations`
+- remove legacy JSON access columns from `designations`
 - add `role_access_items`
 - add `user_designations`
 - seed ARUN01 and NEHA02 role mappings
 - leave SARA03 unmapped
 - preserve existing demo users and access item names
-- verify Phase 1 still passes
+- verify Phase 1 and Phase 2 tests pass
 
-### Step 2 - Build Phase 2
+### Step 2 - Phase 2
 
-Phase 2 starts only after Phase 0B.
+Status: Built.
 
 Goal: resolve role and match access template through tool-use queries.
 
-Key work:
+Built work:
 
 - continue agent flow after identity verification
 - ask clarifying questions for vague role input
 - query `designations` and `role_access_items`
 - return structured `resolved_role` and `selected_template`
-- optionally write confirmed match to `user_designations`
+- write confident match to `user_designations`
 - render selected template in the right panel
 
 ### Step 3 - Build Phase 3
+
+Phase 3 is the next build step. Do not start it unless explicitly requested.
 
 Goal: turn the selected template into a submit-ready access bundle.
 
@@ -204,13 +216,19 @@ For a larger team:
   },
   "resolved_role": {
     "role": "Backend Developer",
+    "designation_id": "backend_developer",
     "seniority": "Junior",
     "employment_type": "full-time",
-    "team": "Cloud Infrastructure"
+    "team": "Cloud Infrastructure",
+    "dept": "Technology",
+    "confidence": 0.96
   },
   "selected_template": {
     "id": "backend_developer",
     "name": "Backend Developer",
+    "description": "Software engineer building server-side services and APIs",
+    "confidence": 0.96,
+    "reasoning": "Role description maps to backend development in Technology.",
     "mandatory_access": [],
     "optional_access": []
   },
@@ -247,7 +265,10 @@ Future endpoints should stay backend-owned and frontend-proxied.
       "name": "GitHub repository access",
       "system": "GitHub",
       "reason": "Required for source code work",
-      "mandatory": true
+      "mandatory": true,
+      "owner_team": "Engineering Tools",
+      "servicenow_catalog_item_id": "SN-GITHUB-REPO",
+      "sort_order": 10
     }
   ],
   "optional_access": []
