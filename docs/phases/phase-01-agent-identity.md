@@ -13,9 +13,12 @@
 | SQL guard | `backend/src/agent/index.py`, `backend/mcp_server/sqlite_server.py` | Blocks non-SELECT statements before and inside MCP query execution |
 | Identity session update | `backend/src/agent/index.py` | Captures verified user rows and returns `acf2_id` plus Workday-style context |
 | ACF2 clarification handling | `backend/src/agent/index.py` | Lets Bedrock explain ACF2 naturally without querying the database |
+| Plain-text reply cleanup | `backend/src/agent/index.py` | Removes leaked Markdown bold markers from model replies |
+| Locked identity guard | `backend/src/agent/index.py` | Prevents a verified session from switching to a different ACF2 ID mid-chat |
+| Reset chat control | `frontend/src/contexts/SessionContext.tsx`, `frontend/src/components/layout/ChatPanel.tsx` | Clears session state and restarts the chat intentionally |
 | Bedrock-down fallback | `backend/src/agent/index.py` | Tells the user when Bedrock is unavailable instead of returning a static explanation |
 | Windows-safe logging | `backend/src/lib/logger.py` | Prevents Unicode log characters from crashing Windows console output |
-| Regression tests | `backend/tests/` | Covers logger encoding, ACF2 clarification prompt rules, and Bedrock-down fallback |
+| Regression tests | `backend/tests/` | Covers logger encoding, ACF2 clarification prompt rules, plain-text cleanup, locked identity, and Bedrock-down fallback |
 
 ## Why It Was Built
 
@@ -95,7 +98,7 @@ If no row is returned, the agent hard-blocks the flow and asks the user to doubl
 
 ### ACF2 Clarification
 
-If the user asks what an ACF2 ID is, says they do not know it, or asks where to find it, the system prompt tells Bedrock to answer naturally in its own words, not call `query_db`, and then ask for the ACF2 ID again.
+If the user asks what an ACF2 ID is, says they do not know it, or asks where to find it, the system prompt tells Bedrock to answer naturally in its own words, not call `query_db`, avoid example IDs or other people's IDs, and then ask for the ACF2 ID again.
 
 If Bedrock is unavailable, the backend returns an explicit service fallback:
 
@@ -111,6 +114,12 @@ There are two SELECT-only guards:
 2. MCP side: `sqlite_server.query_db()` performs the same check before touching SQLite.
 
 This keeps Phase 1 identity verification read-only. Write tools are reserved for later phases.
+
+### Locked Identity and Reset
+
+After `session.acf2_id` is set, identity is locked for that chat session. If the user enters another ACF2-looking value, the backend does not call Bedrock or query the database again. It tells the user they are already verified and asks them to reset the chat if they need to start over.
+
+The chat header includes a reset icon button. Reset clears the React session, clears the message history, stops any loading state, and shows the initial welcome message again.
 
 ## API Contract
 
@@ -183,7 +192,9 @@ Manual chat checks:
 | `ARUN01` | Greets Arun, mentions Cloud Infrastructure and Raj Kumar, asks for role |
 | `Yes my ID is ARUN01` | Extracts and verifies ARUN01 from natural language |
 | `FAKE99` | Hard-blocks identity verification and does not update session |
-| `I don't know what ACF2 ID is` | Bedrock explains ACF2 naturally, does not query DB, asks for the ID again |
+| `I don't know what ACF2 ID is` | Bedrock explains ACF2 naturally without sample IDs, does not query DB, asks for the ID again |
+| Enter another ACF2 ID after ARUN01 is verified | Keeps the existing identity locked and asks the user to reset the chat |
+| Click the reset icon | Clears the session and returns to the initial welcome prompt |
 
 Expected backend logs for verified identity:
 
@@ -208,4 +219,7 @@ Expected backend logs for verified identity:
 - The MCP function is imported directly instead of launching a separate stdio subprocess for each local demo request.
 - Verified identity is captured from the database row, not parsed from Bedrock prose.
 - Unknown IDs are hard-blocked.
-- ACF2-help questions stay dynamic through Bedrock, but Bedrock outages are disclosed clearly to the user.
+- ACF2-help questions stay dynamic through Bedrock, but must not include sample IDs or other people's IDs.
+- Model replies are normalized to plain text before returning to the chat UI.
+- Verified identity is immutable until the user intentionally resets the chat.
+- Bedrock outages are disclosed clearly to the user.
