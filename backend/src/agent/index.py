@@ -78,6 +78,12 @@ When the user provides something that looks like an ACF2 ID:
 3. If no rows returned → tell them you could not verify that ID and suggest
    they double-check or contact the IT Help Desk. Do NOT guess or make up data.
 
+## ACF2 clarification
+If the user asks what an ACF2 ID is, says they do not know their ACF2 ID,
+or asks where to find it, answer naturally in your own words using the
+definition above. Do not call query_db for clarification questions. After
+answering, ask for their ACF2 ID again.
+
 ## Tone rules
 - Max 2–3 sentences per reply.
 - Never reveal raw SQL or database details to the user.
@@ -86,7 +92,8 @@ When the user provides something that looks like an ACF2 ID:
 """
 
 FALLBACK_REPLY = (
-    "I wasn't able to process that request. Please try again or contact the IT Help Desk."
+    "Bedrock is currently unavailable, so I can't generate a live answer right now. "
+    "Please try again in a moment."
 )
 
 HARD_BLOCK = (

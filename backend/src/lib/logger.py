@@ -7,6 +7,8 @@ Usage:
 Prefixes: [AGENT] [BEDROCK] [MCP] [MOCK] [TEAMS] [SERVICENOW] [ORCHESTRATOR] [ERROR]
 """
 
+import sys
+
 from colorama import Fore, Style, init
 
 init(autoreset=True)  # Windows-safe: reset ANSI codes after each print
@@ -27,7 +29,9 @@ def log(prefix: str, message: str) -> None:
     """Print a color-coded log line with the given prefix."""
     color = _PREFIX_COLORS.get(prefix.upper(), Fore.WHITE)
     label = f"{color}[{prefix.upper()}]{Style.RESET_ALL}"
-    print(f"{label}  {message}", flush=True)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe_message = str(message).encode(encoding, errors="replace").decode(encoding)
+    print(f"{label}  {safe_message}", flush=True)
 
 
 # ── Convenience shortcuts ─────────────────────────────────────────────────────
