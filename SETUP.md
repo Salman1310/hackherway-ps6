@@ -156,6 +156,15 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+You can also run the frontend from the repo root:
+
+```bash
+cd hackherway-ps6
+npm run dev
+```
+
+Do not start Next directly from the repo root with `frontend\node_modules\.bin\next dev`; that makes Tailwind resolve packages from the wrong directory.
+
 ---
 
 ## Step 5 - Test It Works
