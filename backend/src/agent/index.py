@@ -368,6 +368,33 @@ def _handle_role_phase(
                     reply_text = block["text"]
                     break
 
+            log_agent(
+                f"Role end_turn: candidate_designations={len(candidate_designations)}, "
+                f"role_access_rows={len(role_access_rows)}"
+            )
+
+            # Fallback: Bedrock may have used user_designations and skipped querying
+            # the designations table directly. If we have role_access_items rows but no
+            # designation metadata, look it up in Python.
+            if role_access_rows and not candidate_designations:
+                designation_id = role_access_rows[0].get("designation_id", "")
+                if designation_id:
+                    log_agent(
+                        f"Fallback: fetching designation '{designation_id}' directly"
+                    )
+                    d_sql = (
+                        f"SELECT * FROM designations WHERE id = {_sql_literal(designation_id)}"
+                    )
+                    d_result = _mcp_query_db(d_sql)
+                    try:
+                        d_rows = json.loads(d_result)
+                        if isinstance(d_rows, list):
+                            for row in d_rows:
+                                if isinstance(row, dict) and "id" in row and "title" in row:
+                                    candidate_designations.append(row)
+                    except Exception:
+                        pass
+
             result: dict = {"reply": _clean_reply(reply_text or FALLBACK_REPLY)}
             if candidate_designations and role_access_rows:
                 selected_template = _build_selected_template(
@@ -611,14 +638,15 @@ def _capture_role_rows(
         return
 
     lowered_sql = (sql or "").lower()
-    if "from designations" in lowered_sql:
-        for row in rows:
-            if isinstance(row, dict) and "id" in row and "title" in row:
-                candidate_designations.append(row)
-    elif "from role_access_items" in lowered_sql:
+    if "from role_access_items" in lowered_sql:
         for row in rows:
             if isinstance(row, dict) and "access_item" in row:
                 role_access_rows.append(row)
+    elif "from designations" in lowered_sql:
+        # Only the 'designations' table has a 'title' column
+        for row in rows:
+            if isinstance(row, dict) and "id" in row and "title" in row:
+                candidate_designations.append(row)
 
 
 def _build_selected_template(
