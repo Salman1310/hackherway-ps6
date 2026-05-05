@@ -1,352 +1,357 @@
 # Team Build Plan - PS6 AI-Powered Access Approval
 
-> **Purpose:** This document helps the team start building in parallel. It explains what the project is, what the demo must communicate, who owns which parts, and what contracts must be agreed before implementation starts.
+## Purpose
 
----
+This document explains how the team should continue building from the current repository state. It replaces older planning notes that referenced RIYA001, Gemini, Ollama, Supabase, pgvector, RAG, and the old phase numbering.
 
-## 1. Project Summary
-
-Sun Life access provisioning is currently fragmented across ServiceNow, Jira, email, SAM, cloud tools, and manual approvals. A new joinee or role-changer may wait 2-30 days because every access item becomes a separate request, approvers are unclear, and audit history is scattered.
-
-This project builds an AI-powered access approval assistant that lets a joinee initiate access setup through a conversational web app. The system verifies the joinee through Workday/ACF2, understands their role, matches them to a persona-based access template, bundles mandatory and optional access, routes approvals through Teams, provisions mock systems, and records everything in an audit trail.
-
-In short:
+Current stack:
 
 ```text
-Fragmented access tickets -> AI-guided role understanding -> one bundled request -> routed approvals -> auditable provisioning
+Frontend: Next.js + React + TypeScript + Tailwind CSS v4
+Backend: FastAPI + Python
+LLM: AWS Bedrock Claude Sonnet 4.6
+Database: local SQLite
+DB access pattern: local FastMCP SQLite wrapper
+Mocks: Workday, AD, Jira, SAM
+Future integrations: ServiceNow MCP or fallback, MS Teams webhook
 ```
 
----
+## Current Project State
 
-## 2. What The Problem Statement Asked For
+| Area | Status |
+|------|--------|
+| Frontend shell | Built |
+| Backend FastAPI app | Built |
+| Phase 0A foundation | Built |
+| Phase 1 identity verification | Built |
+| Phase 0B normalized schema | Built |
+| Phase 2 role resolver | Built |
+| Phase 3 submission flow | Next |
 
-| Requirement | Our Implementation |
-|------------|--------------------|
-| Access Inventory | Persona templates for roles such as Backend Developer, QA Engineer, Finance Analyst |
-| Access Consolidation | One bundled access request per persona instead of separate tool-by-tool tickets |
-| Intelligent Approval Routing | Approval engine routes mandatory and optional access to the correct approvers |
-| Audit & Governance | Audit dashboard shows who requested, approved, and received access |
+Phase 1 currently works around ACF2 identity:
 
----
+- verifies known ACF2 IDs through Bedrock tool-use and SQLite
+- locks identity after verification
+- explains ACF2 without giving sample IDs
+- exposes a reset chat control
+- keeps frontend as a thin UI layer
 
-## 3. What We Are Adding Beyond The Problem Statement
+Phase 2 currently works around role/template matching:
 
-These are the differentiators that make the project feel intelligent rather than just digital:
+- continues after verified identity
+- queries `designations` and `role_access_items` through Bedrock tool-use
+- returns `resolved_role`, `selected_template`, and mandatory `final_bundle`
+- writes confident matches to `user_designations`
+- renders the selected template in the right panel
+- does not submit access requests yet
 
-| Differentiator | Why It Matters |
-|---------------|----------------|
-| Conversational ambiguity resolution | The joinee can say "I do backend stuff," and the agent asks clarifying questions before choosing a template |
-| RAG-based persona matching | Role/team/department context is matched semantically against persona templates |
-| Pre-submission privilege accumulation check | The system warns before granting combinations that create excess privilege |
-| Explainable anomaly score | Approvers see why a request may be risky |
-| Adaptive persona learning | Admins can improve templates based on approval patterns |
-| Template generation for no-match roles | Missing personas can be drafted and sent for admin ratification |
+## Demo Story
 
----
-
-## 4. Core Demo Story
-
-The demo should communicate the idea clearly before showing advanced features.
-
-### Moment 1: The System Understands The Joinee
-
-Show:
-- Joinee enters ACF2 ID
-- Workday mock verifies identity
-- Agent asks clarifying questions if role input is vague
-- RAG finds the closest persona template
-
-Message to jury:
+The demo should tell one simple story:
 
 ```text
-The system knows who the joinee is and resolves ambiguity before creating an access request.
+New joinee asks for access
+  -> AI verifies identity
+  -> AI resolves role
+  -> AI recommends role-based access
+  -> user submits one bundle
+  -> approvals are routed
+  -> access is provisioned or tracked
+  -> audit history is preserved
 ```
 
-### Moment 2: Fragmented Tickets Become One Smart Bundle
+## Demo Users
 
-Show:
-- Persona template appears in the right panel
-- Mandatory access is locked
-- Optional access can be selected
-- Joinee submits one bundled request
+| ACF2 ID | Name | Scenario |
+|---------|------|----------|
+| ARUN01 | Arun Mehta | Happy path and later Risk Scorer |
+| NEHA02 | Neha Kapoor | Privilege Guard scenario |
+| SARA03 | Sara Chen | No-match/admin ratification scenario |
 
-Message to jury:
+Do not use old planning IDs such as RIYA001, JOHN002, PRIYA003, or SAM004.
+
+## Build Order
+
+### Step 1 - Phase 0B
+
+Status: Built.
+
+Goal: replace JSON-based designation access lists with normalized role/access tables.
+
+Target tables:
 
 ```text
-Instead of four or five separate tickets, the joinee submits one role-based access bundle.
+users
+user_designations
+designations
+role_access_items
+access_requests
+approval_events
+approver_routing
+audit_log
+privilege_edges
+dangerous_combinations
+template_drafts
+conversations
+messages
 ```
 
-### Moment 3: Governance Intelligence Catches Risk
+Built work:
 
-Show one strong governance feature:
-- Preferred: D3 privilege accumulation warning in chat
-- Backup: D2 anomaly score on Teams card
+- remove legacy JSON access columns from `designations`
+- add `role_access_items`
+- add `user_designations`
+- seed ARUN01 and NEHA02 role mappings
+- leave SARA03 unmapped
+- preserve existing demo users and access item names
+- verify Phase 1 and Phase 2 tests pass
 
-Message to jury:
+### Step 2 - Phase 2
 
-```text
-The system is not only faster. It is safer and more auditable.
-```
+Status: Built.
 
----
+Goal: resolve role and match access template through tool-use queries.
 
-## 5. Recommended Team Ownership Split
+Built work:
 
-Avoid assigning one person to each sequential phase only. Many phases depend on previous phases, which can block teammates. Instead, assign ownership by subsystem while still using phases as checkpoints.
+- continue agent flow after identity verification
+- ask clarifying questions for vague role input
+- query `designations` and `role_access_items`
+- return structured `resolved_role` and `selected_template`
+- write confident match to `user_designations`
+- render selected template in the right panel
 
-Before Phase 0 starts, replace the owner labels below with real team member names. Unassigned ownership usually becomes unowned work.
+### Step 3 - Build Phase 3
 
-| Owner | Area | Primary Phases | Responsibilities |
-|------|------|----------------|------------------|
-| Teammate A | Frontend experience | Phase 1, Phase 5, Phase 9, parts of Phase 13 | Three-panel UI, chat shell, template panel, status tracker, admin/audit UI surfaces |
-| Teammate B | Agent, identity, and RAG | Phase 2, Phase 3, Phase 4, Phase 10, Phase 11, Phase 14 | ACF2 flow, Workday tool, role resolution, template retrieval, embedding script, D2 explanation, D3 warning, no-match template generation |
-| Teammate C | Approval and provisioning backend | Phase 6, Phase 7, Phase 8 | Approval state machine, Teams cards, public callback URL, approve/reject endpoints, orchestrator, mock provisioning |
-| Teammate D | Data, seeds, admin intelligence | Phase 0, Phase 12, Phase 13 | Schema, seed data, dangerous combinations, synthetic approval events, D1 scoring, audit dashboard data |
+Phase 3 is the next build step. Do not start it unless explicitly requested.
 
-### Owner Name Mapping
+Goal: turn the selected template into a submit-ready access bundle.
 
-Fill this before coding starts:
+Key work:
 
-| Owner Label | Team Member Name | Final Area |
-|-------------|------------------|------------|
-| Teammate A | Unassigned | Frontend experience |
-| Teammate B | Unassigned | Agent, identity, RAG, and embedding script |
-| Teammate C | Unassigned | Approval and provisioning backend |
-| Teammate D | Unassigned | Data, seeds, admin intelligence |
+- right-panel template card
+- mandatory items locked
+- optional items toggleable
+- user confirmation
+- backend submission endpoint
+- write `access_requests`
 
-If the team has only three developers, combine Teammate D with Teammate C for backend/data ownership.
+### Step 4 - Build Phase 4
 
-If the team has two developers, use this split:
+Goal: add governance intelligence.
+
+Key work:
+
+- Risk Scorer for request anomaly score and explanation
+- Privilege Guard for dangerous access combinations
+- audit logs for warning/escalation events
+
+### Step 5 - Build Phase 5
+
+Goal: approval and provisioning workflow.
+
+Key work:
+
+- ServiceNow RITM creation or fallback
+- Teams Adaptive Card
+- approve/reject callbacks
+- orchestrator for mock AD/Jira/SAM provisioning
+- update approval events and audit logs
+
+### Step 6 - Build Phase 6
+
+Goal: status tracking and admin support.
+
+Key work:
+
+- ask "what is my status?"
+- right-panel status tracker
+- no-match draft templates
+- admin ratification queue
+- audit dashboard
+
+### Step 7 - Polish
+
+Goal: reliable 5-7 minute demo.
+
+Key work:
+
+- final seed reset
+- error handling pass
+- demo script
+- backup recording
+- final docs/ADR review
+
+## Ownership Model
+
+For a two-person team:
 
 | Owner | Area |
-|------|------|
-| Developer 1 | Frontend + user/demo flow |
-| Developer 2 | Backend + agent + data + Teams integration |
+|-------|------|
+| Developer 1 | Frontend, right panel, demo flow, UX polish |
+| Developer 2 | Backend, agent, database schema, seed data, integrations |
 
----
+For a larger team:
 
-## 6. Build Order
+| Owner | Area |
+|-------|------|
+| Frontend owner | Chat UI, right panel, status/admin views |
+| Agent owner | Bedrock prompts, tool-use loop, role resolver, risk explanations |
+| Data owner | SQLite schema, seed data, dangerous combinations, audit queries |
+| Integration owner | ServiceNow, Teams, approval callbacks, orchestrator |
 
-Use this order to keep everyone unblocked:
+## Shared Contracts
 
-### Step 1: Lock Shared Contracts
-
-Before anyone builds their phase, agree on these contracts:
-
-```text
-Session state shape
-API endpoint names
-Mock ACF2 users
-Persona template JSON shape
-Access request payload
-Approval event payload
-Teams callback URL format
-Audit log event shape
-```
-
-This lets the frontend use mock responses while backend pieces are still being built.
-
-### Step 2: Build Phase 0 Foundation Together
-
-Everyone should participate in Phase 0 because it defines the shared ground:
-
-- Local repo structure
-- `.env.example`
-- Database schema
-- Seed users
-- Mock APIs
-- Persona templates
-- Dangerous privilege combinations
-
-Embedding ownership is split intentionally:
-
-| Work | Owner | Output |
-|------|-------|--------|
-| Seed persona rows and access bundles | Teammate D | Seed SQL or seed script with persona metadata and access lists |
-| Generate embeddings for seeded personas | Teammate B | Ollama-based `nomic-embed-text` script that writes vectors into `personas.embedding` |
-| Verify pgvector retrieval works | Teammate B + Teammate D | `RIYA001` returns Backend Developer template as top match |
-
-### Step 3: Parallel Build By Ownership
-
-After Phase 0:
-
-- Frontend owner builds UI using mocked JSON
-- Agent/RAG owner builds identity and template retrieval
-- Backend owner builds approval events and Teams callbacks
-- Data owner validates seeds, audit log, and admin queries
-
-### Step 4: Integrate In Thin Vertical Slices
-
-Do not wait until every phase is complete. Integrate one small path at a time:
-
-```text
-RIYA001 identity lookup -> template display
-Template submit -> approval_events rows
-approval_events rows -> Teams card
-Teams approve -> status panel update
-PRIYA003 request -> D3 warning
-JOHN002 request -> D2 score
-```
-
----
-
-## 7. Shared Contracts
-
-### 7.1 Session State
+### Session State
 
 ```json
 {
-  "acf2_id": "RIYA001",
+  "acf2_id": "ARUN01",
   "workday_context": {
-    "name": "Riya Sharma",
-    "team": "Payments Backend",
-    "manager": "Anjali Singh",
-    "dept": "Digital Engineering",
-    "employment_type": "Full-time"
+    "name": "Arun Mehta",
+    "team": "Cloud Infrastructure",
+    "manager": "Raj Kumar",
+    "dept": "Technology",
+    "employment_type": "full-time"
   },
   "resolved_role": {
     "role": "Backend Developer",
-    "seniority": "Mid",
-    "employment_type": "Full-time",
-    "team": "Payments Backend"
+    "designation_id": "backend_developer",
+    "seniority": "Junior",
+    "employment_type": "full-time",
+    "team": "Cloud Infrastructure",
+    "dept": "Technology",
+    "confidence": 0.96
   },
   "selected_template": {
-    "id": "persona_backend_payments",
-    "name": "Backend Developer - Payments",
+    "id": "backend_developer",
+    "name": "Backend Developer",
+    "description": "Software engineer building server-side services and APIs",
+    "confidence": 0.96,
+    "reasoning": "Role description maps to backend development in Technology.",
     "mandatory_access": [],
     "optional_access": []
   },
   "final_bundle": [],
-  "request_id": "uuid"
+  "request_id": null
 }
 ```
 
-### 7.2 Mock ACF2 Users
-
-| ACF2 ID | Demo Purpose |
---------|--------------|
-| RIYA001 | Happy path: backend developer access bundle |
-| JOHN002 | D2 anomaly score scenario |
-| PRIYA003 | D3 privilege accumulation warning |
-| SAM004 | No matching persona template scenario |
-
-### 7.3 API Endpoints
+### Current Endpoint Contracts
 
 ```text
-GET  /mock/workday/employee/:acf2_id
 POST /api/agent/message
-POST /api/templates/retrieve
-POST /api/access-requests
-GET  /api/access-requests/:request_id/status
-POST /api/approve?request_id=&item=
-POST /api/reject?request_id=&item=
-POST /mock/servicenow/provision
-POST /mock/jira/provision
+GET  /api/conversations
+GET  /mock/workday/employee/{acf2_id}
 POST /mock/ad/provision
-POST /mock/sam/provision
+POST /mock/jira/provision
+POST /mock/sam/provision/github-copilot
+POST /mock/sam/provision/non-primary-id
 ```
 
-### 7.4 Environment Variables
+Future endpoints should stay backend-owned and frontend-proxied.
 
-```env
-BYPASS_AUTH=true
-GEMINI_API_KEY=
-OLLAMA_BASE_URL=http://localhost:11434
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-TEAMS_WEBHOOK_URL=
-PUBLIC_BASE_URL=
+### Selected Template Shape
+
+```json
+{
+  "id": "backend_developer",
+  "name": "Backend Developer",
+  "confidence": 0.93,
+  "reasoning": "Role description maps to backend development in Technology.",
+  "mandatory_access": [
+    {
+      "id": "github_repo_access",
+      "name": "GitHub repository access",
+      "system": "GitHub",
+      "reason": "Required for source code work",
+      "mandatory": true,
+      "owner_team": "Engineering Tools",
+      "servicenow_catalog_item_id": "SN-GITHUB-REPO",
+      "sort_order": 10
+    }
+  ],
+  "optional_access": []
+}
 ```
 
-`PUBLIC_BASE_URL` must point to ngrok or an equivalent public HTTPS tunnel during the Teams demo.
+## Engineering Rules
 
----
+- Keep frontend UI-only.
+- Keep backend business logic in FastAPI/agent modules.
+- Keep secrets out of frontend and git.
+- Use AWS Bedrock only for LLM.
+- Use SQLite MCP tool path for application database flows.
+- Seed/setup scripts may use direct `sqlite3`.
+- Do not add Gemini, Ollama, Supabase, pgvector, MongoDB, Express backend, or RAG.
+- Update docs and ADRs when schema or architecture changes.
+- Push completed changes to GitHub.
 
-## 8. Local Collaboration Workflow
+## Verification Checklist
 
-Because the project is local-first, keep the workflow simple:
+Before calling a phase complete:
 
-1. Start from one agreed local baseline repo.
-2. Each teammate works in their owned area using either a local feature branch or a copied working folder.
-3. Commit at every phase checkpoint.
-4. Before merging a teammate's work, run the exit criteria for that phase.
-5. Update `ADR.md` when a structural decision changes.
-6. Update `PHASES.md` when a phase is completed, cut, or moved.
+- [ ] Backend tests pass.
+- [ ] Backend source compiles.
+- [ ] Frontend lint passes.
+- [ ] Frontend build passes.
+- [ ] Seed script runs cleanly if schema/data changed.
+- [ ] Phase doc is updated.
+- [ ] ADR is updated if architecture changed.
+- [ ] Changes are committed and pushed.
 
-Suggested branch names if the team wants branch isolation:
+Recommended commands:
+
+```bash
+cd backend
+python scripts/seed_sqlite.py
+python -m unittest discover -s tests
+python -m compileall src mcp_server scripts tests
+
+cd ../frontend
+npm run lint
+npm run build
+```
+
+## Cut Line If Time Runs Short
+
+Must have:
+
+- ACF2 identity verification
+- role/template match
+- template display
+- bundled request submission
+- approval routing demo or mock
+- audit/status visibility
+
+Should have:
+
+- Privilege Guard
+- Risk Scorer
+- Teams card
+
+Cuttable:
+
+- RetellAI voice
+- full admin dashboard editing
+- full ServiceNow live integration if fallback is working
+- adaptive persona learning
+
+## Demo Rehearsal Checklist
+
+- [ ] ARUN01 identity and happy path works.
+- [ ] Role resolver picks an access template.
+- [ ] Template appears in the right panel.
+- [ ] Request can be submitted.
+- [ ] NEHA02 privilege warning works if Phase 4 is included.
+- [ ] SARA03 no-match path works if Phase 6 is included.
+- [ ] Teams channel is ready if Phase 5 is included.
+- [ ] Backend logs are readable.
+- [ ] Database is freshly seeded.
+- [ ] Backup recording exists.
+
+## One-Line Pitch
 
 ```text
-feature/ui-shell
-feature/identity-agent-rag
-feature/approval-teams
-feature/schema-audit-admin
-```
-
-Suggested commit style:
-
-```text
-feat(ui): add three-panel shell
-feat(agent): add ACF2 identity lookup
-feat(approval): create approval event state machine
-feat(data): seed persona templates
-docs(adr): record Teams callback URL decision
-```
-
----
-
-## 9. Cut Line If Time Runs Short
-
-Protect the core demo first.
-
-### Must Have
-
-```text
-ACF2 lookup
-Persona template match
-Bundled access request
-Teams approval card
-Approve/reject callback
-Status/audit visibility
-```
-
-### Should Have
-
-```text
-D3 privilege accumulation warning
-D2 anomaly score
-```
-
-### Cuttable
-
-```text
-D1 adaptive persona learning
-SAM004 no-match template generation
-Full routing table editor
-Full admin ratification workflow
-```
-
-These cuttable items are still valuable, but they are not required to explain the core solution.
-
----
-
-## 10. Demo Rehearsal Checklist
-
-- [ ] `RIYA001` happy path works from ACF2 entry to Teams approval
-- [ ] Teams card arrives live
-- [ ] Teams approve button calls public `PUBLIC_BASE_URL`
-- [ ] Status panel updates after approval
-- [ ] `PRIYA003` triggers D3 privilege warning
-- [ ] `JOHN002` shows D2 anomaly score if D2 is included
-- [ ] Supabase is warmed up before demo
-- [ ] Ollama model is pulled and tested locally
-- [ ] Gemini API key is valid
-- [ ] Teams channel is cleared before final demo
-- [ ] Backup recording exists
-
----
-
-## 11. One-Line Pitch
-
-```text
-We are turning access provisioning from scattered manual tickets into an AI-guided, persona-based, approval-routed, and fully auditable workflow.
+We turn fragmented access provisioning into an AI-guided, role-based, approval-routed, and auditable workflow.
 ```

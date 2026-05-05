@@ -10,8 +10,9 @@ token.txt
 node_modules/
 
 # Next.js
-web/.next/
-web/out/
+.next/
+frontend/.next/
+frontend/out/
 
 # Build
 dist/
