@@ -396,6 +396,14 @@ def _handle_role_phase(
                         pass
 
             result: dict = {"reply": _clean_reply(reply_text or FALLBACK_REPLY)}
+            if not (candidate_designations and role_access_rows):
+                fallback_match = _load_role_template_fallback(
+                    content, result["reply"], employee_context
+                )
+                if fallback_match:
+                    candidate_designations = [fallback_match["designation"]]
+                    role_access_rows = fallback_match["access_rows"]
+
             if candidate_designations and role_access_rows:
                 selected_template = _build_selected_template(
                     candidate_designations[0], role_access_rows, result["reply"]
@@ -456,6 +464,107 @@ def _handle_role_phase(
         break
 
     return {"reply": FALLBACK_REPLY}
+
+
+def _load_role_template_fallback(
+    role_text: str, reply_text: str, employee_context: dict
+) -> Optional[dict]:
+    """Load template rows when Bedrock says it matched but skipped tool-use rows."""
+    lookup_text = f"{role_text} {reply_text}".lower()
+    if "match" not in lookup_text and "template" not in lookup_text:
+        return None
+
+    designations_result = _mcp_query_db(
+        "SELECT * FROM designations ORDER BY title ASC"
+    )
+    try:
+        designations = json.loads(designations_result)
+    except Exception:
+        return None
+
+    if not isinstance(designations, list):
+        return None
+
+    best_designation = None
+    best_score = 0
+    for designation in designations:
+        if not isinstance(designation, dict):
+            continue
+        score = _score_designation_match(
+            designation, lookup_text, employee_context
+        )
+        if score > best_score:
+            best_score = score
+            best_designation = designation
+
+    if not best_designation or best_score < 2:
+        log_agent("Fallback role template load skipped: no confident match")
+        return None
+
+    designation_id = best_designation["id"]
+    access_result = _mcp_query_db(
+        "SELECT * FROM role_access_items "
+        f"WHERE designation_id = {_sql_literal(designation_id)} "
+        "ORDER BY mandatory DESC, sort_order ASC"
+    )
+    try:
+        access_rows = json.loads(access_result)
+    except Exception:
+        return None
+
+    if not isinstance(access_rows, list) or not access_rows:
+        return None
+
+    log_agent(
+        f"Fallback role template load: {designation_id} ({len(access_rows)} rows)"
+    )
+    return {"designation": best_designation, "access_rows": access_rows}
+
+
+def _score_designation_match(
+    designation: dict, lookup_text: str, employee_context: dict
+) -> int:
+    title = str(designation.get("title", "")).lower()
+    designation_id = str(designation.get("id", "")).lower().replace("_", " ")
+    description = str(designation.get("description", "")).lower()
+    team_hint = str(designation.get("team_hint", "")).lower()
+    dept_hint = str(designation.get("dept_hint", "")).lower()
+    searchable = " ".join([title, designation_id, description, team_hint, dept_hint])
+
+    score = 0
+    if title and title in lookup_text:
+        score += 6
+    if designation_id and designation_id in lookup_text:
+        score += 5
+
+    role_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", lookup_text)
+        if len(token) >= 4
+        and token
+        not in {
+            "access",
+            "items",
+            "loaded",
+            "panel",
+            "right",
+            "role",
+            "template",
+            "matched",
+            "review",
+            "submit",
+        }
+    }
+    score += sum(1 for token in role_tokens if token in searchable)
+
+    employee_team = str(employee_context.get("team") or "").lower()
+    employee_dept = str(employee_context.get("dept") or "").lower()
+    if score > 0 and employee_team and employee_team in team_hint:
+        score += 1
+    if score > 0 and employee_dept and employee_dept in dept_hint:
+        score += 1
+
+    return score
 
 
 def _build_submission_prompt(

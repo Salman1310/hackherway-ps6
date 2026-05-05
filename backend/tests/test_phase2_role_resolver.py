@@ -136,6 +136,59 @@ class Phase2RoleResolverTests(unittest.TestCase):
             update["final_bundle"],
         )
 
+    def test_role_match_reply_without_tool_rows_still_loads_template(self):
+        designation_rows = [
+            {
+                "id": "backend_developer",
+                "title": "Backend Developer",
+                "description": "Builds server-side services and APIs",
+                "team_hint": "backend, engineering, api",
+                "dept_hint": "technology",
+            }
+        ]
+        access_rows = [
+            {
+                "id": "backend_developer:github_repo_access",
+                "designation_id": "backend_developer",
+                "access_item": "github_repo_access",
+                "display_name": "GitHub repository access",
+                "system": "GitHub",
+                "description": "Required for source code work",
+                "mandatory": 1,
+                "owner_team": "Engineering Tools",
+                "servicenow_catalog_item_id": "SN-GITHUB-REPO",
+                "sort_order": 10,
+            }
+        ]
+
+        def fake_query(sql):
+            lowered = sql.lower()
+            if "from designations" in lowered:
+                return json.dumps(designation_rows)
+            if "from role_access_items" in lowered:
+                return json.dumps(access_rows)
+            return "[]"
+
+        with patch(
+            "src.agent.index.converse_with_tools",
+            return_value=_end_turn_response(
+                "I've matched you to the Backend Developer template, and the access items are now loaded in the panel on the right."
+            ),
+        ), patch("src.agent.index._mcp_query_db", side_effect=fake_query), patch(
+            "src.agent.index._mcp_execute_db",
+            return_value=json.dumps({"success": True, "rows_affected": 1}),
+        ):
+            result = handle_agent_message(
+                "Backend Developer",
+                _session(),
+                [],
+            )
+
+        self.assertIn("session_update", result)
+        update = result["session_update"]
+        self.assertEqual("backend_developer", update["selected_template"]["id"])
+        self.assertEqual(1, len(update["selected_template"]["mandatory_access"]))
+
     def test_vague_role_question_does_not_update_template(self):
         with patch(
             "src.agent.index.converse_with_tools",
