@@ -1,14 +1,17 @@
 """
 Access Agent - HackHERway PS6
-Phase 1: Identity verification via Bedrock tool-use loop.
+Phases 1-3: Identity verification, role resolution, and access bundle submission.
 
 Flow:
-  User message -> Bedrock tool-use -> query_db -> SQLite MCP -> result -> Bedrock -> reply
+  Phase 1 (no acf2_id):       user message -> Bedrock -> query_db(users) -> verify -> session_update
+  Phase 2 (no template):       user message -> Bedrock -> query_db(designations/items) -> resolve role -> session_update
+  Phase 3 (template selected): user message -> Bedrock -> optional negotiation -> execute_db(access_requests) -> session_update
 """
 
 import json
 import re
 import time
+import uuid
 from typing import List, Optional
 
 from ..lib.bedrock import converse_with_tools
@@ -53,6 +56,39 @@ TOOL_SPECS = [
             },
         }
     }
+]
+
+
+SUBMISSION_TOOL_SPECS = [
+    TOOL_SPECS[0],  # query_db — reuse existing spec
+    {
+        "toolSpec": {
+            "name": "execute_db",
+            "description": (
+                "Execute an INSERT or UPDATE against the hackherway SQLite database. "
+                "Use this ONLY to create an access_requests record after the employee "
+                "confirms their final access bundle.\n\n"
+                "Target table:\n"
+                "  access_requests(id, acf2_id, designation_id, final_bundle, "
+                "status, created_at)\n\n"
+                "final_bundle must be a JSON array string of access_item IDs.\n"
+                "status must be 'pending'.\n"
+                "Do NOT use for SELECT statements. Do NOT drop or alter tables."
+            ),
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": "A valid SQL INSERT or UPDATE statement.",
+                        }
+                    },
+                    "required": ["sql"],
+                }
+            },
+        }
+    },
 ]
 
 
@@ -152,6 +188,11 @@ def handle_agent_message(
             )
         }
 
+    # Phase 3: template selected — negotiate optional items and submit
+    if session.selected_template:
+        return _handle_submission_phase(content, session, history)
+
+    # Phase 2: identity verified, no template yet — resolve role
     return _handle_role_phase(content, session, history)
 
 
@@ -387,6 +428,167 @@ def _handle_role_phase(
     return {"reply": FALLBACK_REPLY}
 
 
+def _build_submission_prompt(
+    session: SessionState, request_id: str, current_ts: int
+) -> str:
+    workday = session.workday_context
+    name = workday.name if workday else "the employee"
+    team = workday.team if workday else ""
+    acf2_id = session.acf2_id or ""
+
+    template = session.selected_template or {}
+    template_dict = template if isinstance(template, dict) else {}
+    template_name = template_dict.get("name", "")
+    designation_id = template_dict.get("id", "")
+    mandatory_items = template_dict.get("mandatory_access", [])
+    optional_items = template_dict.get("optional_access", [])
+
+    mandatory_names = ", ".join(
+        str(item.get("name") or item.get("id", "")) for item in mandatory_items
+    )
+    optional_lines = "\n".join(
+        f"  - {item.get('name') or item.get('id', '')} (access_item id: {item.get('id', '')})"
+        for item in optional_items
+    ) or "  (none available)"
+    mandatory_ids_json = json.dumps(
+        [str(item.get("id", "")) for item in mandatory_items]
+    )
+
+    return (
+        "You are an AI access request assistant for Sun Life Financial.\n"
+        f"Employee {name} ({acf2_id}) from {team} is verified. "
+        f"Their access template has been selected: {template_name} (id: {designation_id}).\n\n"
+        "## Mandatory access (always included, cannot be removed)\n"
+        f"  {mandatory_names}\n\n"
+        "## Optional access available\n"
+        f"{optional_lines}\n\n"
+        "## Your goal\n"
+        "Guide the employee to finalize and submit their access request.\n\n"
+        "## Steps\n"
+        "1. If optional items exist, list them by name and ask which ones the employee wants. "
+        "If they say none or skip, proceed with mandatory only.\n"
+        "2. Confirm the final bundle with the employee (mandatory + chosen optional). "
+        'Ask: "Ready to submit?"\n'
+        "3. Once the employee confirms, call execute_db with this INSERT "
+        "(replace <bundle_json> with a JSON array of the selected access_item IDs):\n"
+        "   INSERT INTO access_requests (id, acf2_id, designation_id, final_bundle, status, created_at)\n"
+        f"   VALUES ('{request_id}', '{acf2_id}', '{designation_id}', '<bundle_json>', 'pending', {current_ts})\n"
+        f"   The mandatory IDs are: {mandatory_ids_json}\n"
+        "   Add any chosen optional IDs to that array.\n"
+        "4. After execute_db succeeds, tell the employee their request has been submitted "
+        "and approvals will be routed shortly. Do not reveal the request ID or any internal IDs.\n\n"
+        "## Rules\n"
+        "- Ask only one question at a time.\n"
+        "- Plain text only. No Markdown, bold, asterisks, or code formatting.\n"
+        "- Never invent access items. Only use what is listed above.\n"
+        "- Never reveal raw SQL, table names, or internal IDs to the user.\n"
+        "- If the employee asks something unrelated to submitting their request, gently redirect.\n"
+    )
+
+
+def _handle_submission_phase(
+    content: str, session: SessionState, history: List[ChatMessage]
+) -> dict:
+    log_agent(f"Submission message received (len={len(content)})")
+
+    request_id = str(uuid.uuid4())
+    current_ts = int(time.time())
+    system_prompt = _build_submission_prompt(session, request_id, current_ts)
+
+    messages = _build_bedrock_history(history)
+    messages.append({"role": "user", "content": [{"text": content}]})
+
+    request_submitted = False
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        log_bedrock(
+            f"Submission converse call #{iteration + 1} (messages={len(messages)})"
+        )
+
+        try:
+            response = converse_with_tools(
+                system_prompt, messages, SUBMISSION_TOOL_SPECS, max_tokens=768
+            )
+        except Exception as exc:
+            log_error(f"Bedrock submission call failed: {exc}")
+            return {"reply": FALLBACK_REPLY}
+
+        stop_reason = response.get("stopReason", "")
+        output_msg = response.get("output", {}).get("message", {})
+        content_blocks = output_msg.get("content", [])
+
+        log_bedrock(
+            f"submission stopReason={stop_reason}, blocks={len(content_blocks)}"
+        )
+
+        if stop_reason == "end_turn":
+            reply_text = ""
+            for block in content_blocks:
+                if "text" in block:
+                    reply_text = block["text"]
+                    break
+
+            result: dict = {"reply": _clean_reply(reply_text or FALLBACK_REPLY)}
+            if request_submitted:
+                template = session.selected_template or {}
+                template_dict = template if isinstance(template, dict) else {}
+                mandatory = template_dict.get("mandatory_access", [])
+                result["session_update"] = {
+                    "final_bundle": mandatory,
+                    "request_id": request_id,
+                }
+                log_agent(
+                    f"Request submitted: {session.acf2_id} -> request_id={request_id}"
+                )
+            return result
+
+        if stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": content_blocks})
+
+            tool_results = []
+            for block in content_blocks:
+                if "toolUse" not in block:
+                    continue
+
+                tool_name = block["toolUse"]["name"]
+                tool_input = block["toolUse"]["input"]
+                tool_use_id = block["toolUse"]["toolUseId"]
+
+                log_bedrock(f"submission tool_call -> {tool_name}")
+                result_text = _execute_tool(tool_name, tool_input)
+
+                # Detect successful submission to access_requests
+                if tool_name == "execute_db" and not request_submitted:
+                    sql = tool_input.get("sql", "")
+                    if "access_requests" in sql.lower() and request_id in sql:
+                        try:
+                            outcome = json.loads(result_text)
+                            if outcome.get("success"):
+                                request_submitted = True
+                                log_agent(
+                                    f"Access request written to DB: {request_id}"
+                                )
+                        except Exception:
+                            pass
+
+                tool_results.append(
+                    {
+                        "toolResult": {
+                            "toolUseId": tool_use_id,
+                            "content": [{"text": result_text}],
+                        }
+                    }
+                )
+
+            messages.append({"role": "user", "content": tool_results})
+            continue
+
+        log_error(f"Unexpected submission stopReason: {stop_reason}")
+        break
+
+    return {"reply": FALLBACK_REPLY}
+
+
 def _capture_role_rows(
     sql: str,
     result_text: str,
@@ -493,6 +695,8 @@ def _execute_tool(name: str, tool_input: dict) -> str:
     """Route Bedrock tool-use requests to the appropriate MCP server tool."""
     if name == "query_db":
         return _mcp_query_db(tool_input.get("sql", ""))
+    if name == "execute_db":
+        return _mcp_execute_db(tool_input.get("sql", ""))
 
     log_error(f"Unknown tool requested: {name}")
     return json.dumps({"error": f"Unknown tool: {name}"})

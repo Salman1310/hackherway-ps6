@@ -16,8 +16,9 @@ Goal: replace manual, fragmented access request workflows with an AI-powered cha
 | Phase 0B - Normalized role/access schema rework | Done |
 | Phase 1 - Agent identity verification | Done |
 | Phase 2 - Role resolver + template matching | Done |
+| Phase 3 - Template submission flow | Done |
 
-Do not start Phase 3 until Phase 2 is explicitly accepted as the baseline for the next build.
+Do not start Phase 4 until Phase 3 is explicitly accepted as the baseline for the next build.
 
 ## Architecture
 
@@ -209,7 +210,35 @@ Frontend behavior:
 
 - The right panel renders the backend-selected template.
 - Mandatory and optional items are displayed.
-- No Phase 3 submission or optional-item toggling is implemented yet.
+
+## Current Phase 3 Behavior
+
+Phase 3 is built.
+
+The agent:
+
+- activates when `session.selected_template` is set (after Phase 2)
+- lists available optional access items and asks which the user wants
+- confirms the final access bundle (mandatory + chosen optional)
+- calls `execute_db` to INSERT into `access_requests` with a pre-generated UUID
+- returns `session_update` with `final_bundle` and `request_id` after successful submission
+- keeps replies plain text
+- uses `SUBMISSION_TOOL_SPECS` (query_db + execute_db) — execute_db not available in Phase 1/2
+
+Frontend behavior:
+
+- Right panel template display unchanged from Phase 2.
+- `final_bundle` and `request_id` stored in session but not displayed (Phase 5/6 will use them).
+- No submit button exists in the frozen frontend; all submission goes through chat.
+
+Agent routing order:
+
+```text
+no acf2_id          → Phase 1 (identity)
+acf2_id + ACF2 msg  → identity lock
+selected_template   → Phase 3 (submission)
+else                → Phase 2 (role resolver)
+```
 
 ## Demo Users
 
