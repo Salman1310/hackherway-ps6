@@ -1,0 +1,193 @@
+HackHerWay PS6 - Database Tables Reference
+===========================================
+
+Purpose
+-------
+This file is documentation only. It does not affect runtime behavior.
+
+The SQLite database tables are functional and are used by the backend. Viewing
+the tables with commands such as SELECT queries is read-only and does not
+change the application.
+
+Current database file:
+backend/hackherway.db
+
+To regenerate the seeded local database:
+cd backend
+python scripts/seed_sqlite.py
+
+To inspect the main Phase 2 role tables manually:
+cd backend
+python -c "import sqlite3; c=sqlite3.connect('hackherway.db'); c.row_factory=sqlite3.Row; tables=['user_designations','designations','role_access_items']; [print('\n## '+t+'\n' + '-'*60) or [print(dict(r)) for r in c.execute(f'SELECT * FROM {t} ORDER BY 1')] for t in tables]; c.close()"
+
+
+Runtime vs Reference
+--------------------
+Runtime source of truth:
+- backend/hackherway.db
+- backend/scripts/seed_sqlite.py
+- backend/src/agent/index.py and related backend services
+
+Reference only:
+- This file
+- Other documentation under docs/
+
+
+Current Table Inventory
+-----------------------
+The Phase 0B/Phase 2 database currently has 13 tables.
+
+1. users
+   Purpose: Phase 1 identity lookup.
+   Current seeded rows: 3
+   Used by: ACF2 verification and user profile context.
+   Notes: Stores demo users such as ARUN01, NEHA02, and SARA03. It does not
+   store a designation column. Role and designation mapping is normalized into
+   user_designations.
+
+2. user_designations
+   Purpose: Maps a verified ACF2 user to one resolved designation template.
+   Current seeded rows: 2
+   Used by: Phase 2 role resolver.
+   Key columns:
+   - acf2_id
+   - designation_id
+   - assigned_at
+   - source
+   Current seeded mappings:
+   - ARUN01 -> devops_cloud_engineer
+   - NEHA02 -> finance_analyst
+   - SARA03 is deliberately unmapped so the no-template path can be tested.
+
+3. designations
+   Purpose: Stores available role or designation templates.
+   Current seeded rows: 8
+   Used by: Phase 2 role/template matching and Phase 3 access panel context.
+   Key columns:
+   - id
+   - title
+   - description
+   - team_hint
+   - dept_hint
+   Notes: team_hint and dept_hint help the agent pre-filter templates using
+   the user's team and department.
+
+4. role_access_items
+   Purpose: Stores the mandatory and optional access items attached to each
+   designation template.
+   Current seeded rows: 51
+   Used by: Phase 2 template loading, Phase 3 right-side access template panel,
+   and future ServiceNow request mapping.
+   Key columns:
+   - id
+   - designation_id
+   - access_item
+   - display_name
+   - system
+   - description
+   - mandatory
+   - owner_team
+   - servicenow_catalog_item_id
+   - sort_order
+
+5. access_requests
+   Purpose: Stores submitted access requests.
+   Current seeded rows: 0
+   Used by: Phase 3 submission flow and later approval/provisioning phases.
+
+6. approval_events
+   Purpose: Stores approval history and status transitions.
+   Current seeded rows: 15
+   Used by: Phase 4/5 approval and request status simulation.
+
+7. approver_routing
+   Purpose: Maps request context to manager/team approvers.
+   Current seeded rows: 37
+   Used by: Phase 5 routing logic.
+
+8. audit_log
+   Purpose: Stores audit events.
+   Current seeded rows: 0
+   Used by: Later governance and traceability work.
+
+9. privilege_edges
+   Purpose: Represents existing user-to-access relationships.
+   Current seeded rows: 2
+   Used by: Phase 4 privilege and risk checks.
+
+10. dangerous_combinations
+    Purpose: Defines access combinations that should be flagged.
+    Current seeded rows: 5
+    Used by: Phase 4 separation-of-duty and risk guardrails.
+
+11. template_drafts
+    Purpose: Stores draft templates for no-match or admin-ratification flows.
+    Current seeded rows: 0
+    Used by: Phase 6 planned admin/template workflow.
+
+12. conversations
+    Purpose: Stores chat conversation records.
+    Current seeded rows: 0
+    Used by: Chat/session persistence.
+
+13. messages
+    Purpose: Stores chat messages.
+    Current seeded rows: 0
+    Used by: Chat/session persistence.
+
+
+Main Phase 2 Role Tables
+------------------------
+These are the three tables most people will inspect while debugging the role
+resolver or the access template panel.
+
+user_designations
+- Answers: Does this user already map to a known designation?
+- Example: ARUN01 maps to devops_cloud_engineer.
+- Functional impact: Yes. This table can influence which template is selected.
+
+designations
+- Answers: What role templates exist?
+- Example: backend_developer, finance_analyst, devops_cloud_engineer.
+- Functional impact: Yes. The backend uses this table as the template catalog.
+
+role_access_items
+- Answers: Which access items belong to a selected template?
+- Example: backend_developer has 8 access items.
+- Functional impact: Yes. These rows are what the right-side Access Template
+  panel should render after the role is matched.
+
+
+Backend Developer Template Example
+----------------------------------
+Designation id:
+backend_developer
+
+Mandatory access items:
+- GitHub repository access
+- Jira project access
+- Non-production database read
+- Non-production environment
+
+Optional access items:
+- Production database read
+- CyberArk PAM
+- GitHub Copilot
+- AWS development console
+
+Expected Phase 3 UI behavior:
+After the LLM/backend resolves the user's role to backend_developer, the Access
+Template panel should show these 8 items. Mandatory items should be included by
+default. Optional items should be selectable by the user.
+
+
+Important Notes
+---------------
+- Do not put real employee ACF2 IDs into LLM explanation responses.
+- The LLM may help interpret the role, but the final access template must come
+  from the normalized database tables.
+- If the chat says a template is ready but the right panel is empty, check that
+  the frontend is pointing at the running backend that has the latest code and
+  that role_access_items contains rows for the selected designation_id.
+- This reference should be updated whenever the database schema or seed data
+  changes meaningfully.
