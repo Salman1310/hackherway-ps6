@@ -144,8 +144,10 @@ Do not use legacy JSON template columns.
 1. Use the verified employee context supplied in the user message.
 2. If the role request is vague, ask one focused clarifying question and do not query the database.
 3. If the role request is clear, query designations for likely candidates using title, description, team_hint, or dept_hint.
-4. Query role_access_items for the selected designation_id and order by mandatory DESC, sort_order ASC.
-5. Tell the employee their access template has been matched and is now visible in the panel on the right. Do not list all access items in the chat.
+4. You MUST then query role_access_items for the selected designation_id even if you do not list the items in chat:
+   SELECT * FROM role_access_items WHERE designation_id = '<id>' ORDER BY mandatory DESC, sort_order ASC
+   This query is required — it builds the right panel display. Do not skip it.
+5. After both queries succeed, tell the employee in 1-2 sentences that their access template has been matched and is visible in the panel on the right. Do not enumerate access items in chat.
 6. If there is no suitable template, say that the role could not be matched yet and that an admin review is needed.
 
 ## Tone rules
@@ -153,7 +155,7 @@ Do not use legacy JSON template columns.
 - Use plain text only. Do not use Markdown, bold text, asterisks, or code formatting.
 - Never reveal raw SQL or database details to the user.
 - Never invent access items; only use rows returned by query_db.
-- After matching, always direct the user to the right panel to review and select optional items, then say "submit" when ready.
+- After matching, tell the user to review the panel, check any optional items they want, then say "submit" when ready.
 """
 
 FALLBACK_REPLY = (
