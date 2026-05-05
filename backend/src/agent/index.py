@@ -145,7 +145,7 @@ Do not use legacy JSON template columns.
 2. If the role request is vague, ask one focused clarifying question and do not query the database.
 3. If the role request is clear, query designations for likely candidates using title, description, team_hint, or dept_hint.
 4. Query role_access_items for the selected designation_id and order by mandatory DESC, sort_order ASC.
-5. Explain the selected template in plain professional language.
+5. Tell the employee their access template has been matched and is now visible in the panel on the right. Do not list all access items in the chat.
 6. If there is no suitable template, say that the role could not be matched yet and that an admin review is needed.
 
 ## Tone rules
@@ -153,6 +153,7 @@ Do not use legacy JSON template columns.
 - Use plain text only. Do not use Markdown, bold text, asterisks, or code formatting.
 - Never reveal raw SQL or database details to the user.
 - Never invent access items; only use rows returned by query_db.
+- After matching, always direct the user to the right panel to review and select optional items, then say "submit" when ready.
 """
 
 FALLBACK_REPLY = (
@@ -440,49 +441,53 @@ def _build_submission_prompt(
     template_dict = template if isinstance(template, dict) else {}
     template_name = template_dict.get("name", "")
     designation_id = template_dict.get("id", "")
-    mandatory_items = template_dict.get("mandatory_access", [])
-    optional_items = template_dict.get("optional_access", [])
 
-    mandatory_names = ", ".join(
-        str(item.get("name") or item.get("id", "")) for item in mandatory_items
+    # final_bundle is maintained by the frontend panel (mandatory + user-selected optional).
+    # Use it directly — no need to negotiate optional items in chat.
+    final_bundle = session.final_bundle or []
+    bundle_items: list[str] = []
+    bundle_names: list[str] = []
+    for item in final_bundle:
+        if isinstance(item, dict) and item.get("id"):
+            bundle_items.append(str(item["id"]))
+            bundle_names.append(str(item.get("name") or item["id"]))
+
+    bundle_ids_json = json.dumps(bundle_items).replace("'", "''")
+    bundle_names_text = (
+        "\n".join(f"  - {n}" for n in bundle_names) or "  (none selected)"
     )
-    optional_lines = "\n".join(
-        f"  - {item.get('name') or item.get('id', '')} (access_item id: {item.get('id', '')})"
-        for item in optional_items
-    ) or "  (none available)"
-    mandatory_ids_json = json.dumps(
-        [str(item.get("id", "")) for item in mandatory_items]
+
+    # Build the exact INSERT SQL so Bedrock copies it without modification.
+    insert_sql = (
+        f"INSERT INTO access_requests "
+        f"(id, acf2_id, designation_id, final_bundle, status, created_at) "
+        f"VALUES ('{request_id}', '{acf2_id}', '{designation_id}', "
+        f"'{bundle_ids_json}', 'pending', {current_ts})"
     )
 
     return (
         "You are an AI access request assistant for Sun Life Financial.\n"
-        f"Employee {name} ({acf2_id}) from {team} is verified. "
-        f"Their access template has been selected: {template_name} (id: {designation_id}).\n\n"
-        "## Mandatory access (always included, cannot be removed)\n"
-        f"  {mandatory_names}\n\n"
-        "## Optional access available\n"
-        f"{optional_lines}\n\n"
+        f"Employee {name} ({acf2_id}) from {team} is verified and has reviewed "
+        f"their access template ({template_name}) in the right panel.\n\n"
+        "## Selected access bundle\n"
+        "The employee has already selected their access items using the panel:\n"
+        f"{bundle_names_text}\n\n"
         "## Your goal\n"
-        "Guide the employee to finalize and submit their access request.\n\n"
+        "Confirm the bundle and submit the access request.\n\n"
         "## Steps\n"
-        "1. If optional items exist, list them by name and ask which ones the employee wants. "
-        "If they say none or skip, proceed with mandatory only.\n"
-        "2. Confirm the final bundle with the employee (mandatory + chosen optional). "
-        'Ask: "Ready to submit?"\n'
-        "3. Once the employee confirms, call execute_db with this INSERT "
-        "(replace <bundle_json> with a JSON array of the selected access_item IDs):\n"
-        "   INSERT INTO access_requests (id, acf2_id, designation_id, final_bundle, status, created_at)\n"
-        f"   VALUES ('{request_id}', '{acf2_id}', '{designation_id}', '<bundle_json>', 'pending', {current_ts})\n"
-        f"   The mandatory IDs are: {mandatory_ids_json}\n"
-        "   Add any chosen optional IDs to that array.\n"
-        "4. After execute_db succeeds, tell the employee their request has been submitted "
-        "and approvals will be routed shortly. Do not reveal the request ID or any internal IDs.\n\n"
+        "1. Briefly confirm the selected items with the employee and ask: "
+        '"Ready to submit?"\n'
+        "2. Once the employee confirms, call execute_db with this exact SQL "
+        "(do not modify it):\n"
+        f"   {insert_sql}\n"
+        "3. After execute_db succeeds, tell the employee their request has been "
+        "submitted and approvals will be routed shortly.\n\n"
         "## Rules\n"
-        "- Ask only one question at a time.\n"
         "- Plain text only. No Markdown, bold, asterisks, or code formatting.\n"
-        "- Never invent access items. Only use what is listed above.\n"
-        "- Never reveal raw SQL, table names, or internal IDs to the user.\n"
-        "- If the employee asks something unrelated to submitting their request, gently redirect.\n"
+        "- Never reveal raw SQL, table names, request IDs, or internal IDs to the user.\n"
+        "- If the employee wants to change their optional items, tell them to use "
+        "the panel on the right and then say submit again.\n"
+        "- If the employee asks something unrelated, gently redirect.\n"
     )
 
 

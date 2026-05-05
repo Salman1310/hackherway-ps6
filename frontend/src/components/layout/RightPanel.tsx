@@ -12,10 +12,25 @@ const steps = [
 ];
 
 export default function RightPanel() {
-  const { session } = useSession();
+  const { session, setSession } = useSession();
   const template = session.selected_template;
   const resolvedRole = session.resolved_role;
   const hasTemplate = Boolean(template);
+
+  // IDs of items currently in the final bundle
+  const bundleIds = session.final_bundle
+    .filter((i) => i && i.id)
+    .map((i) => i.id);
+
+  const toggleOptionalItem = (item: AccessItem) => {
+    setSession((prev) => {
+      const isChecked = prev.final_bundle.some((i) => i.id === item.id);
+      const newBundle = isChecked
+        ? prev.final_bundle.filter((i) => i.id !== item.id)
+        : [...prev.final_bundle, item];
+      return { ...prev, final_bundle: newBundle };
+    });
+  };
 
   return (
     <div className="flex flex-col w-full bg-white rounded-2xl overflow-hidden shadow-xl">
@@ -68,6 +83,8 @@ export default function RightPanel() {
               title="Optional"
               items={template.optional_access}
               mandatory={false}
+              checkedIds={bundleIds}
+              onToggle={toggleOptionalItem}
             />
           </div>
         ) : (
@@ -104,7 +121,7 @@ export default function RightPanel() {
           </span>
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded border border-gray-300 inline-block" />
-            Optional
+            Optional — click to toggle
           </span>
         </div>
       </div>
@@ -138,10 +155,14 @@ function AccessGroup({
   title,
   items,
   mandatory,
+  checkedIds,
+  onToggle,
 }: {
   title: string;
   items: AccessItem[];
   mandatory: boolean;
+  checkedIds?: string[];
+  onToggle?: (item: AccessItem) => void;
 }) {
   if (!items.length) {
     return null;
@@ -156,31 +177,55 @@ function AccessGroup({
         <span className="text-[10px] text-gray-400">{items.length}</span>
       </div>
       <div className="space-y-2">
-        {items.map((item) => (
-          <div key={item.id} className="rounded-xl border border-gray-100 p-3">
-            <div className="flex items-start gap-2.5">
-              {mandatory ? (
-                <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-              ) : (
-                <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-gray-800 leading-snug">
-                  {item.name}
-                </p>
-                <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
-                  {item.system}
-                  {item.owner_team ? ` - ${item.owner_team}` : ''}
-                </p>
-                {item.reason && (
-                  <p className="text-[10px] text-gray-500 mt-1.5 leading-snug">
-                    {item.reason}
-                  </p>
+        {items.map((item) => {
+          const isChecked = mandatory || (checkedIds?.includes(item.id) ?? false);
+          const isToggleable = !mandatory && Boolean(onToggle);
+
+          return (
+            <div
+              key={item.id}
+              className={[
+                'rounded-xl border p-3 transition-colors',
+                isToggleable
+                  ? 'cursor-pointer select-none'
+                  : '',
+                isToggleable && isChecked
+                  ? 'border-blue-200 bg-blue-50/40 hover:bg-blue-50/60'
+                  : isToggleable
+                  ? 'border-gray-100 hover:border-blue-100 hover:bg-blue-50/20'
+                  : 'border-gray-100',
+              ].join(' ')}
+              onClick={isToggleable ? () => onToggle!(item) : undefined}
+            >
+              <div className="flex items-start gap-2.5">
+                {isChecked ? (
+                  <CheckCircle2
+                    className={[
+                      'w-4 h-4 mt-0.5 flex-shrink-0',
+                      mandatory ? 'text-green-600' : 'text-blue-500',
+                    ].join(' ')}
+                  />
+                ) : (
+                  <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0" />
                 )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-gray-800 leading-snug">
+                    {item.name}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                    {item.system}
+                    {item.owner_team ? ` - ${item.owner_team}` : ''}
+                  </p>
+                  {item.reason && (
+                    <p className="text-[10px] text-gray-500 mt-1.5 leading-snug">
+                      {item.reason}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

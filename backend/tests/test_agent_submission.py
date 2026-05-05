@@ -242,14 +242,19 @@ class TestSubmissionPromptContent(unittest.TestCase):
         self.assertIn("GitHub repository access", prompt)
         self.assertIn("Jira project access", prompt)
 
-    def test_submission_prompt_contains_optional_items(self):
-        """_build_submission_prompt must list optional access item names."""
+    def test_submission_prompt_lists_final_bundle_not_optional_catalog(self):
+        """_build_submission_prompt must list final_bundle items (mandatory ones),
+        NOT the full optional catalog — optional selection is handled by the UI panel."""
         from src.agent.index import _build_submission_prompt
 
         prompt = _build_submission_prompt(
             _SESSION_WITH_TEMPLATE, "req-test-uuid", 1700000000
         )
-        self.assertIn("PagerDuty", prompt)
+        # Mandatory items (in final_bundle) must appear
+        self.assertIn("GitHub repository access", prompt)
+        self.assertIn("Jira project access", prompt)
+        # PagerDuty is optional and NOT in final_bundle — must not appear in prompt
+        self.assertNotIn("PagerDuty", prompt)
 
     def test_submission_prompt_contains_request_id(self):
         """_build_submission_prompt must embed the pre-generated request_id."""
@@ -266,7 +271,8 @@ class TestSubmissionPromptContent(unittest.TestCase):
         prompt = _build_submission_prompt(
             _SESSION_WITH_TEMPLATE, "req-test-uuid", 1700000000
         )
-        self.assertIn("Do not reveal the request ID", prompt)
+        # Phrase changed to cover request IDs and all internal IDs
+        self.assertIn("request IDs, or internal IDs", prompt)
 
 
 if __name__ == "__main__":
