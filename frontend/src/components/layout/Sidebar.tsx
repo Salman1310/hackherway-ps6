@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Clock, History, X, MessageSquare } from 'lucide-react';
+import { Plus, Clock, History, X, MessageSquare, Settings } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
+import Link from 'next/link';
 
 type Conversation = {
   id: string;
@@ -97,6 +98,17 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Admin link */}
+      <div className="px-4 py-2 border-t border-white/10">
+        <Link
+          href="/admin/roles"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors text-xs"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Role Configuration
+        </Link>
       </div>
 
       {/* Footer */}
