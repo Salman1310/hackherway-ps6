@@ -12,6 +12,7 @@ import {
   Layers3,
   Save,
   X,
+  Copy,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -50,6 +51,7 @@ export default function AdminRolesPage() {
   const [items, setItems] = useState<AccessItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateRole, setShowCreateRole] = useState(false);
+  const [showCopyRole, setShowCopyRole] = useState(false);
   const [editingRole, setEditingRole] = useState<Designation | null>(null);
   const [showItemWorkflow, setShowItemWorkflow] = useState(false);
   const [options, setOptions] = useState<Options>({ teams: [], departments: [], systems: [], owner_teams: [] });
@@ -74,11 +76,13 @@ export default function AdminRolesPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDesignations();
     fetchOptions();
   }, [fetchDesignations, fetchOptions]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (selectedId) fetchItems(selectedId);
   }, [selectedId, fetchItems]);
 
@@ -117,13 +121,22 @@ export default function AdminRolesPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setShowCreateRole(true)}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            New Role
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCopyRole(true)}
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-medium py-2 px-4 rounded-lg transition-colors text-sm"
+            >
+              <Copy className="w-4 h-4" />
+              Copy Role ID
+            </button>
+            <button
+              onClick={() => setShowCreateRole(true)}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              New Role
+            </button>
+          </div>
         </div>
       </header>
 
@@ -314,6 +327,20 @@ export default function AdminRolesPage() {
         />
       )}
 
+      {/* Copy Role Modal */}
+      {showCopyRole && (
+        <CopyRoleModal
+          designations={designations}
+          onClose={() => setShowCopyRole(false)}
+          onCopied={(id) => {
+            setShowCopyRole(false);
+            fetchDesignations();
+            fetchOptions();
+            setSelectedId(id);
+          }}
+        />
+      )}
+
       {/* Edit Role Modal */}
       {editingRole && (
         <EditRoleModal
@@ -437,6 +464,154 @@ function CreateRoleModal({
           <button type="submit" disabled={saving} className="btn-primary">
             <Save className="w-4 h-4" />
             {saving ? 'Creating...' : 'Create Role'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CopyRoleModal({
+  designations,
+  onClose,
+  onCopied,
+}: {
+  designations: Designation[];
+  onClose: () => void;
+  onCopied: (id: string) => void;
+}) {
+  const [sourceId, setSourceId] = useState(designations[0]?.id ?? '');
+  const source = designations.find((d) => d.id === sourceId);
+  const [form, setForm] = useState({
+    id: source ? `${source.id}_copy` : '',
+    title: source ? `${source.title} Copy` : '',
+    description: source?.description ?? '',
+    team_hint: source?.team_hint ?? '',
+    dept_hint: source?.dept_hint ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const changeSource = (id: string) => {
+    const next = designations.find((d) => d.id === id);
+    setSourceId(id);
+    if (next) {
+      setForm({
+        id: `${next.id}_copy`,
+        title: `${next.title} Copy`,
+        description: next.description ?? '',
+        team_hint: next.team_hint ?? '',
+        dept_hint: next.dept_hint ?? '',
+      });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sourceId) return;
+    setSaving(true);
+    setError('');
+    const res = await fetch('/api/admin/designations/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source_designation_id: sourceId,
+        ...form,
+      }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (res.ok) {
+      onCopied(data.id);
+    } else {
+      setError(data.detail ?? data.error ?? 'Failed to copy role');
+    }
+  };
+
+  return (
+    <Modal title="Copy Role ID" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Source Role
+          </label>
+          <select
+            value={sourceId}
+            onChange={(e) => changeSource(e.target.value)}
+            className="input"
+            required
+          >
+            {designations.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.title} ({d.id})
+              </option>
+            ))}
+          </select>
+          {source && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              Copies the full access item bundle from {source.item_count} item{source.item_count !== 1 ? 's' : ''}.
+            </p>
+          )}
+        </div>
+
+        <Field label="New Role ID" required>
+          <input
+            required
+            value={form.id}
+            onChange={(e) => setForm({ ...form, id: e.target.value })}
+            className="input"
+            placeholder="devops_cloud_engineer_copy"
+          />
+        </Field>
+
+        <Field label="New Role Title" required>
+          <input
+            required
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            className="input"
+            placeholder="DevOps / Cloud Engineer Copy"
+          />
+        </Field>
+
+        <Field label="Description">
+          <textarea
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="input min-h-20"
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Team Hint">
+            <input
+              value={form.team_hint}
+              onChange={(e) => setForm({ ...form, team_hint: e.target.value })}
+              className="input"
+            />
+          </Field>
+          <Field label="Department Hint">
+            <input
+              value={form.dept_hint}
+              onChange={(e) => setForm({ ...form, dept_hint: e.target.value })}
+              className="input"
+            />
+          </Field>
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className="btn-primary">
+            <Copy className="w-4 h-4" />
+            {saving ? 'Copying...' : 'Copy Bundle'}
           </button>
         </div>
       </form>
@@ -666,7 +841,7 @@ function ItemWorkflowEditor({
           <div>
             <h2 className="text-lg font-bold text-gray-900">Access Items Workflow</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Add, edit, reorder, and remove items. Click "Save All" when done.
+              Add, edit, reorder, and remove items. Click &quot;Save All&quot; when done.
             </p>
           </div>
           <button

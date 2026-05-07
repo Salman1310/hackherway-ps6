@@ -137,6 +137,7 @@ export default function RightPanel() {
 
   useEffect(() => {
     if (!session.request_id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchApprovalStatus();
     const interval = setInterval(fetchApprovalStatus, 5000);
     return () => clearInterval(interval);

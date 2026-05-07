@@ -28,8 +28,11 @@ class MessageRequest(BaseModel):
     content: str
     session: SessionState
     history: List[ChatMessage] = []
+    authenticated_acf2_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
     reply: str
     session_update: Optional[dict] = None
+    conversation_id: Optional[str] = None

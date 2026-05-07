@@ -3,12 +3,13 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   ReactNode,
   Dispatch,
   SetStateAction,
 } from 'react';
-import type { SessionState, Message } from '@/lib/types';
+import type { AuthUser, SessionState, Message } from '@/lib/types';
 
 const createInitialSession = (): SessionState => ({
   acf2_id: null,
@@ -28,6 +29,11 @@ const createWelcomeMessage = (): Message => ({
 });
 
 type SessionContextType = {
+  authUser: AuthUser | null;
+  setAuthUser: Dispatch<SetStateAction<AuthUser | null>>;
+  authReady: boolean;
+  conversationId: string | null;
+  setConversationId: Dispatch<SetStateAction<string | null>>;
   session: SessionState;
   setSession: Dispatch<SetStateAction<SessionState>>;
   messages: Message[];
@@ -35,24 +41,106 @@ type SessionContextType = {
   isLoading: boolean;
   setIsLoading: Dispatch<SetStateAction<boolean>>;
   resetChat: () => void;
+  logout: () => void;
+  loadConversation: (id: string) => Promise<void>;
+  restoreLatestConversation: (acf2Id: string) => Promise<void>;
 };
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionState>(createInitialSession);
   const [messages, setMessages] = useState<Message[]>([createWelcomeMessage()]);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    const raw = window.localStorage.getItem('hackherway.authUser');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as AuthUser;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setAuthUser(parsed);
+        restoreLatestConversation(parsed.acf2_id);
+      } catch {
+        window.localStorage.removeItem('hackherway.authUser');
+      }
+    }
+    setAuthReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function resetChat() {
     setSession(createInitialSession());
     setMessages([createWelcomeMessage()]);
+    setConversationId(null);
+    setIsLoading(false);
+  }
+
+  function logout() {
+    window.localStorage.removeItem('hackherway.authUser');
+    setAuthUser(null);
+    resetChat();
+  }
+
+  async function restoreLatestConversation(acf2Id: string) {
+    try {
+      const res = await fetch(`/api/conversations?acf2_id=${encodeURIComponent(acf2Id)}`);
+      const data = await res.json();
+      const latest = data.conversations?.[0];
+      if (latest?.id) {
+        await loadConversation(latest.id);
+      } else {
+        resetChat();
+      }
+    } catch {
+      resetChat();
+    }
+  }
+
+  async function loadConversation(id: string) {
+    const res = await fetch(`/api/conversations/${id}`);
+    if (!res.ok) throw new Error('Unable to load conversation');
+    const data = await res.json();
+    const loadedMessages = (data.messages ?? []).map((m: {
+      id: string;
+      role: 'bot' | 'user';
+      content: string;
+      created_at: number;
+    }) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: new Date(m.created_at * 1000),
+    }));
+
+    setConversationId(id);
+    setMessages(loadedMessages.length > 0 ? loadedMessages : [createWelcomeMessage()]);
+    setSession({ ...createInitialSession(), ...(data.session ?? {}) });
     setIsLoading(false);
   }
 
   return (
     <SessionContext.Provider
-      value={{ session, setSession, messages, setMessages, isLoading, setIsLoading, resetChat }}
+      value={{
+        authUser,
+        setAuthUser,
+        authReady,
+        conversationId,
+        setConversationId,
+        session,
+        setSession,
+        messages,
+        setMessages,
+        isLoading,
+        setIsLoading,
+        resetChat,
+        logout,
+        loadConversation,
+        restoreLatestConversation,
+      }}
     >
       {children}
     </SessionContext.Provider>

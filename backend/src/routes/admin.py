@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..lib.sqlite import get_db
 from ..lib.logger import log
 
 router = APIRouter()
@@ -61,6 +62,15 @@ class AccessItemUpdate(BaseModel):
     owner_team: Optional[str] = None
     servicenow_catalog_item_id: Optional[str] = None
     sort_order: Optional[int] = None
+
+
+class CopyDesignationRequest(BaseModel):
+    source_designation_id: str
+    id: str
+    title: str
+    description: Optional[str] = ""
+    team_hint: Optional[str] = ""
+    dept_hint: Optional[str] = ""
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -142,6 +152,76 @@ def create_designation(body: DesignationCreate):
     _execute(sql)
     log("ADMIN", f"Created designation: {body.id}")
     return {"id": body.id, "created": True}
+
+
+@router.post("/designations/copy", status_code=201)
+def copy_designation(body: CopyDesignationRequest):
+    source_id = body.source_designation_id.strip()
+    target_id = body.id.strip()
+    if not source_id or not target_id or not body.title.strip():
+        raise HTTPException(status_code=400, detail="Source, target ID, and title are required")
+
+    db = get_db()
+    source = db.execute(
+        "SELECT * FROM designations WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source designation not found")
+
+    existing = db.execute(
+        "SELECT id FROM designations WHERE id = ?",
+        (target_id,),
+    ).fetchone()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Designation '{target_id}' already exists")
+
+    rows = db.execute(
+        "SELECT * FROM role_access_items WHERE designation_id = ? ORDER BY mandatory DESC, sort_order ASC",
+        (source_id,),
+    ).fetchall()
+
+    try:
+        db.execute("BEGIN")
+        db.execute(
+            "INSERT INTO designations (id, title, description, team_hint, dept_hint) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                target_id,
+                body.title.strip(),
+                body.description or "",
+                body.team_hint or "",
+                body.dept_hint or "",
+            ),
+        )
+        for row in rows:
+            db.execute(
+                """
+                INSERT INTO role_access_items
+                  (id, designation_id, access_item, display_name, system, description,
+                   mandatory, owner_team, servicenow_catalog_item_id, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"{target_id}_{row['access_item']}",
+                    target_id,
+                    row["access_item"],
+                    row["display_name"],
+                    row["system"],
+                    row["description"],
+                    row["mandatory"],
+                    row["owner_team"],
+                    row["servicenow_catalog_item_id"],
+                    row["sort_order"],
+                ),
+            )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    log("ADMIN", f"Copied designation: {source_id} -> {target_id}")
+    return {"id": target_id, "copied_from": source_id, "items_copied": len(rows)}
 
 
 @router.put("/designations/{designation_id}")

@@ -46,11 +46,32 @@ def _init_schema(db: sqlite3.Connection) -> None:
             employment_type TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS user_auth (
+            acf2_id       TEXT PRIMARY KEY,
+            password      TEXT NOT NULL,
+            created_at    INTEGER NOT NULL,
+            last_login_at INTEGER,
+            FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
+        );
+
+        INSERT OR IGNORE INTO user_auth (acf2_id, password, created_at, last_login_at)
+        SELECT 'ARUN01', 'arun123', 1777593600, NULL
+        WHERE EXISTS (SELECT 1 FROM users WHERE acf2_id = 'ARUN01');
+
+        INSERT OR IGNORE INTO user_auth (acf2_id, password, created_at, last_login_at)
+        SELECT 'NEHA02', 'neha123', 1777593600, NULL
+        WHERE EXISTS (SELECT 1 FROM users WHERE acf2_id = 'NEHA02');
+
+        INSERT OR IGNORE INTO user_auth (acf2_id, password, created_at, last_login_at)
+        SELECT 'SARA03', 'sara123', 1777593600, NULL
+        WHERE EXISTS (SELECT 1 FROM users WHERE acf2_id = 'SARA03');
+
         CREATE TABLE IF NOT EXISTS conversations (
             id         TEXT PRIMARY KEY,
             acf2_id    TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            session_json TEXT
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -62,4 +83,9 @@ def _init_schema(db: sqlite3.Connection) -> None:
             FOREIGN KEY(conversation_id) REFERENCES conversations(id)
         );
     """)
+    conversation_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(conversations)")
+    }
+    if "session_json" not in conversation_columns:
+        db.execute("ALTER TABLE conversations ADD COLUMN session_json TEXT")
     db.commit()
