@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Clock, History, X, MessageSquare } from 'lucide-react';
+import { Plus, Clock, X, MessageSquare, Settings, LogOut } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
+import Link from 'next/link';
 
 type Conversation = {
   id: string;
@@ -12,19 +13,18 @@ type Conversation = {
 };
 
 export default function Sidebar({ onClose }: { onClose: () => void }) {
-  const { session } = useSession();
-  const acf2Verified = !!session.acf2_id;
+  const { authUser, loadConversation, logout, resetChat, memoryVersion } = useSession();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
-    if (!session.acf2_id) return;
+    if (!authUser?.acf2_id) return;
 
-    fetch(`/api/conversations?acf2_id=${session.acf2_id}`)
+    fetch(`/api/conversations?acf2_id=${authUser.acf2_id}`)
       .then((r) => r.json())
       .then((data) => setConversations(data.conversations ?? []))
       .catch(() => setConversations([]));
-  }, [session.acf2_id]);
+  }, [authUser?.acf2_id, memoryVersion]);
 
   return (
     <div className="flex flex-col h-full bg-sl-dark border-r border-white/10">
@@ -47,7 +47,10 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
 
       {/* New Request button */}
       <div className="px-4 py-4">
-        <button className="w-full flex items-center justify-center gap-2 bg-sl-gold hover:bg-sl-gold-dark text-sl-dark font-semibold py-2.5 px-4 rounded-lg transition-colors duration-200 text-sm">
+        <button
+          onClick={resetChat}
+          className="w-full flex items-center justify-center gap-2 bg-sl-gold hover:bg-sl-gold-dark text-sl-dark font-semibold py-2.5 px-4 rounded-lg transition-colors duration-200 text-sm"
+        >
           <Plus className="w-4 h-4" strokeWidth={2.5} />
           New Request
         </button>
@@ -60,17 +63,7 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
           Recent Requests
         </div>
 
-        {!acf2Verified ? (
-          /* Not verified yet */
-          <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-              <History className="w-5 h-5 text-white/20" />
-            </div>
-            <p className="text-white/30 text-xs leading-relaxed">
-              Enter your ACF2 ID to load your request history
-            </p>
-          </div>
-        ) : conversations.length === 0 ? (
+        {conversations.length === 0 ? (
           /* Verified but no past conversations */
           <div className="flex flex-col items-center justify-center gap-3 py-8 px-3 text-center">
             <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
@@ -85,7 +78,13 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
           <ul className="space-y-1">
             {conversations.map((conv) => (
               <li key={conv.id}>
-                <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 transition-colors group">
+                <button
+                  onClick={() => {
+                    loadConversation(conv.id).catch(() => setConversations([]));
+                    onClose();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 transition-colors group"
+                >
                   <p className="text-white/70 text-xs font-medium truncate group-hover:text-white transition-colors">
                     Request - {conv.id.slice(0, 8)}
                   </p>
@@ -99,9 +98,33 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
+      {/* Admin link */}
+      <div className="px-4 py-2 border-t border-white/10">
+        <Link
+          href="/admin/roles"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors text-xs"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Role Configuration
+        </Link>
+      </div>
+
       {/* Footer */}
       <div className="px-4 py-3 border-t border-white/10">
-        <p className="text-white/20 text-[10px] text-center tracking-wide">HackHERway 2025 - PS6</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-white/50 text-[10px] truncate">{authUser?.name}</p>
+            <p className="text-white/20 text-[10px] tracking-wide truncate">{authUser?.acf2_id}</p>
+          </div>
+          <button
+            onClick={logout}
+            className="p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -5,22 +5,17 @@ from typing import List, Optional
 _client = None
 
 MODEL_ID: str = os.environ.get(
-    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+    "BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-6-v1"
 )
 
 
 def get_client():
     global _client
     if _client is None:
-        kwargs: dict = {
-            "region_name": os.environ.get("AWS_REGION", "us-east-1"),
-            "aws_access_key_id": os.environ.get("AWS_ACCESS_KEY_ID"),
-            "aws_secret_access_key": os.environ.get("AWS_SECRET_ACCESS_KEY"),
-        }
-        session_token = os.environ.get("AWS_SESSION_TOKEN")
-        if session_token:
-            kwargs["aws_session_token"] = session_token
-        _client = boto3.client("bedrock-runtime", **kwargs)
+        profile = os.environ.get("AWS_PROFILE", "bedrock")
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        session = boto3.Session(profile_name=profile, region_name=region)
+        _client = session.client("bedrock-runtime")
     return _client
 
 

@@ -26,6 +26,7 @@
 | ADR-014 | Production Migration Path | Accepted | 2026-04-29 |
 | ADR-015 | Demo Strategy: Three Pre-Seeded ACF2 IDs | Accepted | 2026-04-29 |
 | ADR-016 | GitHub Workflow Convention | Accepted | 2026-04-29 |
+| ADR-017 | Phase 4-5: Admin Portal + Approval Workflow with Teams Integration | Accepted | 2026-05-06 |
 
 ---
 
@@ -400,4 +401,55 @@ __pycache__/
 
 ---
 
-*Last updated: 2026-04-30*
+---
+
+## ADR-017: Phase 4-5 - Admin Portal + Approval Workflow with Teams Integration
+
+**Date:** 2026-05-06 | **Status:** Accepted
+
+### Context
+After Phase 3 (access bundle submission via chat), the system needed:
+1. An admin interface for managing designations and access items (CRUD).
+2. A manager approval workflow triggered after request submission.
+3. MS Teams notifications to alert managers of pending approvals.
+4. A portal page where managers can approve/reject individual access items.
+5. Real-time status updates on the requester's panel.
+
+### Decision
+
+**Admin Portal (Phase 4):**
+- Backend routes at `/api/admin/*` for full CRUD on designations and role_access_items.
+- Frontend admin page at `/admin/roles` with designation management and access item editor.
+- Dropdown options populated from existing DB data (teams, departments, systems).
+
+**Approval Workflow (Phase 5):**
+- Backend routes at `/api/approvals/*`:
+  - `POST /submit` — creates access_requests + per-item approval_events + Teams notification.
+  - `GET /status/{request_id}` — returns all approval events with enriched display names.
+  - `POST /action` — approve or reject a single event; auto-resolves request when all events done.
+- Frontend submit button in RightPanel triggers `/api/approvals/submit`.
+- Frontend polls `/api/approvals/status/{id}` every 5 seconds for real-time updates.
+
+**Teams Integration:**
+- Incoming Webhook sends an Adaptive Card to the configured channel.
+- Card contains requester details, role, team, access items, and a "Review & Approve in Portal" button.
+- The button links to `/approvals?request_id=<id>` — a standalone approval page.
+- SSL verification disabled (`verify=False`) to handle corporate proxy certificates.
+- Action.OpenUrl used instead of Action.Http (Incoming Webhooks are send-only, cannot receive callbacks).
+
+**Approval Page (`/approvals`):**
+- Standalone page (no session context needed — manager opens via Teams link).
+- Shows request summary, progress bar, and per-item approve/reject buttons.
+- Bulk "Approve All" / "Reject All" for convenience.
+- Auto-polls for status updates.
+
+### Consequences
+- Managers get immediate Teams alerts and can approve from any device with browser access.
+- Requester sees real-time approval progress without refreshing.
+- Admin portal allows non-technical users to manage role templates.
+- SSL bypass is acceptable for hackathon; production should use proper CA certificates.
+- No Teams bot registration required — works with standard Incoming Webhook connector.
+
+---
+
+*Last updated: 2026-05-06*

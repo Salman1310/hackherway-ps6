@@ -53,6 +53,7 @@ DROP TABLE IF EXISTS access_requests;
 DROP TABLE IF EXISTS ritm_requests;
 DROP TABLE IF EXISTS role_access_items;
 DROP TABLE IF EXISTS user_designations;
+DROP TABLE IF EXISTS user_auth;
 DROP TABLE IF EXISTS designations;
 DROP TABLE IF EXISTS users;
 
@@ -65,6 +66,14 @@ CREATE TABLE users (
     manager         TEXT,
     dept            TEXT,
     employment_type TEXT
+);
+
+CREATE TABLE user_auth (
+    acf2_id       TEXT PRIMARY KEY,
+    password      TEXT NOT NULL,
+    created_at    INTEGER NOT NULL,
+    last_login_at INTEGER,
+    FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
 );
 
 CREATE TABLE designations (
@@ -177,6 +186,7 @@ CREATE TABLE conversations (
     acf2_id    TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    session_json TEXT,
     FOREIGN KEY(acf2_id) REFERENCES users(acf2_id)
 );
 
@@ -195,6 +205,12 @@ USERS = [
     ("ARUN01", "Arun Mehta", "Cloud Infrastructure", "Raj Kumar", "Technology", "full-time"),
     ("NEHA02", "Neha Kapoor", "Finance Analytics", "Deepa Menon", "Finance", "contract"),
     ("SARA03", "Sara Chen", "TBD", "TBD", "TBD", "full-time"),
+]
+
+USER_AUTH = [
+    {"acf2_id": "ARUN01", "password": "arun123", "created_at": ts(2026, 5, 1), "last_login_at": None},
+    {"acf2_id": "NEHA02", "password": "neha123", "created_at": ts(2026, 5, 1), "last_login_at": None},
+    {"acf2_id": "SARA03", "password": "sara123", "created_at": ts(2026, 5, 1), "last_login_at": None},
 ]
 
 DESIGNATIONS = [
@@ -556,6 +572,15 @@ def seed():
     )
     for acf2_id, name, *_ in USERS:
         print(f"  seeded: {acf2_id} - {name}")
+
+    db.executemany(
+        """
+        INSERT INTO user_auth (acf2_id, password, created_at, last_login_at)
+        VALUES (:acf2_id, :password, :created_at, :last_login_at)
+        """,
+        USER_AUTH,
+    )
+    print("Demo login credentials: ARUN01, NEHA02, SARA03")
 
     print("\nDesignations:")
     db.executemany(

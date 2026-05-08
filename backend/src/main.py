@@ -8,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes.agent import router as agent_router
 from .routes.conversations import router as conversations_router
+from .routes.admin import router as admin_router
+from .routes.approvals import router as approvals_router
+from .routes.auth import router as auth_router
 from .mock.workday import router as workday_router
 from .mock.ad import router as ad_router
 from .mock.jira import router as jira_router
@@ -27,6 +30,9 @@ app.add_middleware(
 # ── API routes ────────────────────────────────────────────────────────────────
 app.include_router(agent_router,         prefix="/api/agent")
 app.include_router(conversations_router, prefix="/api")
+app.include_router(admin_router,         prefix="/api/admin")
+app.include_router(approvals_router,     prefix="/api/approvals")
+app.include_router(auth_router,          prefix="/api/auth")
 
 # ── Mock API routes (Phase 0 — used by Orchestrator in Phase 5) ──────────────
 app.include_router(workday_router, prefix="/mock/workday")

@@ -4,8 +4,17 @@ import { useSession } from '@/contexts/SessionContext';
 import type { Message } from '@/lib/types';
 
 export function useChat() {
-  const { session, setSession, messages, setMessages, isLoading, setIsLoading } =
-    useSession();
+  const {
+    authUser,
+    conversationId,
+    setConversationId,
+    session,
+    setSession,
+    messages,
+    setMessages,
+    isLoading,
+    setIsLoading,
+  } = useSession();
 
   async function sendMessage(content: string) {
     if (!content.trim() || isLoading) return;
@@ -30,6 +39,8 @@ export function useChat() {
           content: content.trim(),
           session,
           history: messages.map((m) => ({ role: m.role, content: m.content })),
+          authenticated_acf2_id: authUser?.acf2_id,
+          conversation_id: conversationId,
         }),
       });
 
@@ -38,6 +49,7 @@ export function useChat() {
       const data = (await res.json()) as {
         reply: string;
         session_update?: Partial<typeof session>;
+        conversation_id?: string;
       };
 
       const botMsg: Message = {
@@ -51,6 +63,9 @@ export function useChat() {
 
       if (data.session_update) {
         setSession((prev) => ({ ...prev, ...data.session_update }));
+      }
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
       }
     } catch {
       const errorMsg: Message = {

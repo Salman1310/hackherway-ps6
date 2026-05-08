@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { Menu, RotateCcw } from 'lucide-react';
+import { Menu, Trash2 } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
 import MessageBubble from '@/components/chat/MessageBubble';
 import ChatInput from '@/components/chat/ChatInput';
 import TypingIndicator from '@/components/chat/TypingIndicator';
 
 export default function ChatPanel({ onMenuClick }: { onMenuClick: () => void }) {
-  const { messages, isLoading, resetChat } = useSession();
+  const { messages, isLoading, authUser, deleteMemory } = useSession();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,12 +37,21 @@ export default function ChatPanel({ onMenuClick }: { onMenuClick: () => void }) 
           <span className="text-[10px] text-gray-400 font-medium">Live</span>
           <button
             type="button"
-            onClick={resetChat}
-            aria-label="Reset chat"
-            title="Reset chat"
+            onClick={() => {
+              const confirmed = window.confirm(
+                `Delete saved memory for ${authUser?.acf2_id ?? 'this user'}?`,
+              );
+              if (!confirmed) return;
+
+              deleteMemory().catch(() => {
+                window.alert('Unable to delete saved memory. Please try again.');
+              });
+            }}
+            aria-label="Delete saved memory"
+            title="Delete saved memory"
             className="ml-2 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
           >
-            <RotateCcw className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>

@@ -56,6 +56,7 @@ class Phase0BSchemaTests(unittest.TestCase):
                 "template_drafts",
                 "conversations",
                 "messages",
+                "user_auth",
             },
             tables,
         )
@@ -69,6 +70,19 @@ class Phase0BSchemaTests(unittest.TestCase):
         )
         self.assertNotIn("mandatory_items", designation_columns)
         self.assertNotIn("optional_items", designation_columns)
+
+        auth_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(user_auth)")
+        }
+        self.assertEqual(
+            {"acf2_id", "password", "created_at", "last_login_at"},
+            auth_columns,
+        )
+
+        conversation_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(conversations)")
+        }
+        self.assertIn("session_json", conversation_columns)
 
         role_item_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(role_access_items)")
@@ -125,6 +139,25 @@ class Phase0BSchemaTests(unittest.TestCase):
         self.assertTrue(devops_rows[0]["display_name"])
         self.assertTrue(devops_rows[0]["system"])
         self.assertTrue(devops_rows[0]["servicenow_catalog_item_id"])
+
+    def test_seed_creates_demo_login_credentials(self):
+        conn = self._seeded_db()
+
+        credentials = {
+            row["acf2_id"]: row["password"]
+            for row in conn.execute(
+                "SELECT acf2_id, password FROM user_auth ORDER BY acf2_id"
+            ).fetchall()
+        }
+
+        self.assertEqual(
+            {
+                "ARUN01": "arun123",
+                "NEHA02": "neha123",
+                "SARA03": "sara123",
+            },
+            credentials,
+        )
 
 
 if __name__ == "__main__":

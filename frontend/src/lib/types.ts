@@ -6,6 +6,10 @@ export type WorkdayContext = {
   employment_type: string;
 };
 
+export type AuthUser = WorkdayContext & {
+  acf2_id: string;
+};
+
 export type ResolvedRole = {
   role: string;
   designation_id: string;
