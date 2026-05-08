@@ -40,7 +40,9 @@ type SessionContextType = {
   setMessages: Dispatch<SetStateAction<Message[]>>;
   isLoading: boolean;
   setIsLoading: Dispatch<SetStateAction<boolean>>;
+  memoryVersion: number;
   resetChat: () => void;
+  deleteMemory: () => Promise<void>;
   logout: () => void;
   loadConversation: (id: string) => Promise<void>;
   restoreLatestConversation: (acf2Id: string) => Promise<void>;
@@ -55,6 +57,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionState>(createInitialSession);
   const [messages, setMessages] = useState<Message[]>([createWelcomeMessage()]);
   const [isLoading, setIsLoading] = useState(false);
+  const [memoryVersion, setMemoryVersion] = useState(0);
 
   useEffect(() => {
     const raw = window.localStorage.getItem('hackherway.authUser');
@@ -77,6 +80,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setMessages([createWelcomeMessage()]);
     setConversationId(null);
     setIsLoading(false);
+  }
+
+  async function deleteMemory() {
+    if (!authUser?.acf2_id) {
+      resetChat();
+      return;
+    }
+
+    const res = await fetch(
+      `/api/conversations?acf2_id=${encodeURIComponent(authUser.acf2_id)}`,
+      { method: 'DELETE' },
+    );
+    if (!res.ok) throw new Error('Unable to delete memory');
+
+    resetChat();
+    setMemoryVersion((version) => version + 1);
   }
 
   function logout() {
@@ -136,7 +155,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setMessages,
         isLoading,
         setIsLoading,
+        memoryVersion,
         resetChat,
+        deleteMemory,
         logout,
         loadConversation,
         restoreLatestConversation,

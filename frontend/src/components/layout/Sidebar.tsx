@@ -13,7 +13,7 @@ type Conversation = {
 };
 
 export default function Sidebar({ onClose }: { onClose: () => void }) {
-  const { authUser, loadConversation, logout, resetChat } = useSession();
+  const { authUser, loadConversation, logout, resetChat, memoryVersion } = useSession();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
@@ -24,7 +24,7 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
       .then((r) => r.json())
       .then((data) => setConversations(data.conversations ?? []))
       .catch(() => setConversations([]));
-  }, [authUser?.acf2_id]);
+  }, [authUser?.acf2_id, memoryVersion]);
 
   return (
     <div className="flex flex-col h-full bg-sl-dark border-r border-white/10">

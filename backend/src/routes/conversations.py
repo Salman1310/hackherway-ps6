@@ -24,6 +24,36 @@ def get_conversations(acf2_id: str = Query(..., description="Employee ACF2 ID"))
         return {"conversations": []}
 
 
+@router.delete("/conversations")
+def delete_user_memory(acf2_id: str = Query(..., description="Employee ACF2 ID")) -> dict:
+    db = get_db()
+    normalized_acf2_id = acf2_id.upper()
+    conversations = db.execute(
+        "SELECT id FROM conversations WHERE acf2_id = ?",
+        (normalized_acf2_id,),
+    ).fetchall()
+    conversation_ids = [row["id"] for row in conversations]
+
+    if not conversation_ids:
+        return {"acf2_id": normalized_acf2_id, "deleted_conversations": 0}
+
+    placeholders = ",".join("?" for _ in conversation_ids)
+    with db:
+        db.execute(
+            f"DELETE FROM messages WHERE conversation_id IN ({placeholders})",
+            conversation_ids,
+        )
+        db.execute(
+            f"DELETE FROM conversations WHERE id IN ({placeholders})",
+            conversation_ids,
+        )
+
+    return {
+        "acf2_id": normalized_acf2_id,
+        "deleted_conversations": len(conversation_ids),
+    }
+
+
 @router.get("/conversations/{conversation_id}")
 def get_conversation_detail(conversation_id: str) -> dict:
     db = get_db()

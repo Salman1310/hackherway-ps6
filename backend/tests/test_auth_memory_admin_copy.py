@@ -137,6 +137,40 @@ class ConversationMemoryTests(BackendFeatureTestCase):
         self.assertEqual({"acf2_id": "ARUN01"}, result["session"])
         self.assertEqual("ARUN01", result["messages"][0]["content"])
 
+    def test_delete_user_memory_removes_only_that_users_conversations(self):
+        from src.routes.conversations import delete_user_memory
+
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO conversations (id, acf2_id, created_at, updated_at, session_json) "
+                "VALUES ('arun-conv', 'ARUN01', 10, 20, '{}')"
+            )
+            conn.execute(
+                "INSERT INTO conversations (id, acf2_id, created_at, updated_at, session_json) "
+                "VALUES ('neha-conv', 'NEHA02', 10, 20, '{}')"
+            )
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, created_at) "
+                "VALUES ('arun-msg', 'arun-conv', 'user', 'ARUN01', 11)"
+            )
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, created_at) "
+                "VALUES ('neha-msg', 'neha-conv', 'user', 'NEHA02', 11)"
+            )
+            conn.commit()
+
+        result = delete_user_memory("arun01")
+
+        with self.connect() as conn:
+            conversations = conn.execute(
+                "SELECT id FROM conversations ORDER BY id"
+            ).fetchall()
+            messages = conn.execute("SELECT id FROM messages ORDER BY id").fetchall()
+
+        self.assertEqual({"acf2_id": "ARUN01", "deleted_conversations": 1}, result)
+        self.assertEqual(["neha-conv"], [row["id"] for row in conversations])
+        self.assertEqual(["neha-msg"], [row["id"] for row in messages])
+
 
 class RoleCopyTests(BackendFeatureTestCase):
     def test_copy_designation_creates_new_role_with_copied_items(self):
