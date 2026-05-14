@@ -5,7 +5,9 @@
       "Bash(npm run *)",
       "Bash(curl -s http://localhost:3000)",
       "Bash(curl -s http://localhost:8000/docs)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(python -m compileall src mcp_server)",
+      "Bash(python -m compileall src)"
     ]
   }
 }

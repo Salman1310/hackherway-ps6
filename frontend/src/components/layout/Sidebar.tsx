@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Clock, X, MessageSquare, Settings, LogOut } from 'lucide-react';
+import { Plus, Clock, X, MessageSquare, Settings, LogOut, ClipboardList, ExternalLink } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
 import Link from 'next/link';
 
@@ -55,6 +55,30 @@ export default function Sidebar({ onClose }: { onClose: () => void }) {
           New Request
         </button>
       </div>
+
+      {/* Quick links */}
+      <div className="px-3 pb-3 space-y-1">
+        <Link
+          href="/my-requests"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
+        >
+          <ClipboardList className="w-3.5 h-3.5 flex-shrink-0" />
+          My Requests
+        </Link>
+        <a
+          href="/servicenow"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
+        >
+          <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+          ServiceNow Portal
+          <span className="ml-auto text-white/30 text-[10px]">↗</span>
+        </a>
+      </div>
+
+      {/* Divider */}
+      <div className="mx-4 border-t border-white/10 mb-3" />
 
       {/* History */}
       <div className="flex-1 overflow-y-auto px-3 pb-4 thin-scrollbar">

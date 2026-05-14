@@ -41,6 +41,18 @@ export type SelectedTemplate = {
   optional_access: AccessItem[];
 };
 
+export type AgentTraceStep = {
+  status: 'done' | 'pending' | 'error';
+  label: string;
+  detail: string | null;
+};
+
+export type AgentTrace = {
+  steps: AgentTraceStep[];
+  designation_id: string;
+  confidence: number;
+};
+
 export type SessionState = {
   acf2_id: string | null;
   workday_context: WorkdayContext | null;
@@ -48,6 +60,7 @@ export type SessionState = {
   selected_template: SelectedTemplate | null;
   final_bundle: AccessItem[];
   request_id: string | null;
+  agent_trace: AgentTrace | null;
 };
 
 export type Message = {

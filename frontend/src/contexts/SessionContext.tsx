@@ -18,6 +18,7 @@ const createInitialSession = (): SessionState => ({
   selected_template: null,
   final_bundle: [],
   request_id: null,
+  agent_trace: null,
 });
 
 const createWelcomeMessage = (): Message => ({

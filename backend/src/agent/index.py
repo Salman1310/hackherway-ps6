@@ -412,10 +412,17 @@ def _handle_role_phase(
                     selected_template, employee_context
                 )
                 final_bundle = selected_template["mandatory_access"]
+                agent_trace = _build_agent_trace(
+                    candidate_designations,
+                    role_access_rows,
+                    selected_template,
+                    employee_context,
+                )
                 result["session_update"] = {
                     "resolved_role": resolved_role,
                     "selected_template": selected_template,
                     "final_bundle": final_bundle,
+                    "agent_trace": agent_trace,
                 }
                 _record_user_designation(
                     session.acf2_id or "",
@@ -833,6 +840,67 @@ def _record_user_designation(acf2_id: str, designation_id: str, source: str) -> 
     )
     result = _mcp_execute_db(sql)
     log_mcp(f"user_designations upsert result: {result}")
+
+
+def _build_agent_trace(
+    candidate_designations: list[dict],
+    role_access_rows: list[dict],
+    selected_template: dict,
+    employee_context: dict,
+) -> dict:
+    """Build a structured reasoning trace for the frontend transparency panel."""
+    designation = candidate_designations[0]
+    total_scanned = max(len(candidate_designations), 1)
+
+    # Determine which hints matched
+    hints_matched = []
+    team_hint = str(designation.get("team_hint") or "").lower()
+    dept_hint = str(designation.get("dept_hint") or "").lower()
+    emp_team = str(employee_context.get("team") or "").lower()
+    emp_dept = str(employee_context.get("dept") or "").lower()
+
+    for token in re.findall(r"[a-z]+", emp_team):
+        if len(token) >= 4 and token in team_hint:
+            hints_matched.append({"field": "Team", "value": employee_context.get("team", ""), "hint": "team_hint"})
+            break
+    for token in re.findall(r"[a-z]+", emp_dept):
+        if len(token) >= 4 and token in dept_hint:
+            hints_matched.append({"field": "Dept", "value": employee_context.get("dept", ""), "hint": "dept_hint"})
+            break
+
+    mandatory_count = len(selected_template.get("mandatory_access", []))
+    optional_count = len(selected_template.get("optional_access", []))
+
+    steps = [
+        {
+            "status": "done",
+            "label": f"Scanned {total_scanned} designation{'s' if total_scanned != 1 else ''}",
+            "detail": None,
+        },
+        {
+            "status": "done",
+            "label": f"Matched  {selected_template['name']}",
+            "detail": "  ·  ".join(
+                f"{h['field']}: \"{h['value']}\"" for h in hints_matched
+            ) or None,
+        },
+        {
+            "status": "done",
+            "label": f"Loaded {mandatory_count + optional_count} access items",
+            "detail": f"{mandatory_count} mandatory  ·  {optional_count} optional",
+        },
+        {
+            "status": "done",
+            "label": "Role saved to user profile",
+            "detail": None,
+        },
+    ]
+
+    return {
+        "steps": steps,
+        "designation_id": designation["id"],
+        "confidence": selected_template.get("confidence", 0.96),
+    }
 
 
 def _execute_tool(name: str, tool_input: dict) -> str:

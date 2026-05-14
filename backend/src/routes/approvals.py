@@ -153,6 +153,72 @@ def submit_request(body: SubmitRequest):
     }
 
 
+# ── My Requests (all requests for a user) ───────────────────────────────────
+
+@router.get("/my-requests")
+def get_my_requests(acf2_id: str):
+    requests = _query(
+        f"SELECT * FROM access_requests WHERE acf2_id = '{_esc(acf2_id)}' "
+        f"ORDER BY created_at DESC"
+    )
+
+    enriched = []
+    for req in requests:
+        # Designation title
+        designation_rows = _query(
+            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        )
+        role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
+
+        # Approval events for this request
+        events = _query(
+            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
+            f"ORDER BY submitted_at ASC"
+        )
+
+        # Enrich events with display names
+        for event in events:
+            item_rows = _query(
+                f"SELECT display_name, system FROM role_access_items "
+                f"WHERE access_item = '{_esc(event['access_item'])}' LIMIT 1"
+            )
+            if item_rows:
+                event["display_name"] = item_rows[0].get("display_name", event["access_item"])
+                event["system"] = item_rows[0].get("system", "")
+            else:
+                event["display_name"] = event["access_item"]
+                event["system"] = ""
+
+        total = len(events)
+        approved = sum(1 for e in events if e["status"] == "approved")
+        rejected = sum(1 for e in events if e["status"] == "rejected")
+        pending = sum(1 for e in events if e["status"] == "pending")
+
+        if total == 0:
+            overall = "pending"
+        elif rejected > 0 and pending == 0:
+            overall = "partially_rejected"
+        elif approved == total:
+            overall = "fully_approved"
+        else:
+            overall = "pending_approval"
+
+        enriched.append({
+            **req,
+            "role_title": role_title,
+            "events": events,
+            "summary": {
+                "total": total,
+                "approved": approved,
+                "rejected": rejected,
+                "pending": pending,
+                "overall": overall,
+            },
+        })
+
+    return {"requests": enriched}
+
+
 # ── Get Approval Status ──────────────────────────────────────────────────────
 
 @router.get("/status/{request_id}")

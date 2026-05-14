@@ -14,9 +14,12 @@ import {
   Send,
   Loader2,
   XCircle,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useSession } from '@/contexts/SessionContext';
-import type { AccessItem } from '@/lib/types';
+import type { AccessItem, AgentTrace } from '@/lib/types';
 
 const STEPS = [
   { label: 'Request Created', icon: Package },
@@ -46,11 +49,74 @@ type ApprovalStatus = {
   };
 };
 
+function AgentReasoningPanel({ trace }: { trace: AgentTrace }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-100/60 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Agent Reasoning
+          </span>
+        </div>
+        {open ? (
+          <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+        )}
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 space-y-2">
+          {trace.steps.map((step, i) => (
+            <div key={i} className="flex items-start gap-2.5">
+              {/* Step icon */}
+              <div className="mt-0.5 flex-shrink-0">
+                {step.status === 'done' ? (
+                  <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                  </div>
+                ) : (
+                  <div className="w-4 h-4 rounded-full border border-slate-200" />
+                )}
+              </div>
+              {/* Step text */}
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-700 leading-snug">
+                  {step.label}
+                </p>
+                {step.detail && (
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    {step.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+          {/* Confidence footer */}
+          <div className="mt-1 pt-2 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400">Match confidence</span>
+            <span className="text-[10px] font-semibold text-slate-600">
+              {Math.round(trace.confidence * 100)}%
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RightPanel() {
   const { session, setSession } = useSession();
   const template = session.selected_template;
   const resolvedRole = session.resolved_role;
   const workday = session.workday_context;
+  const agentTrace = session.agent_trace;
   const hasTemplate = Boolean(template);
   const isSubmitted = Boolean(session.request_id);
 
@@ -249,6 +315,11 @@ export default function RightPanel() {
                   </div>
                 </div>
               </div>
+
+              {/* Agent reasoning trace */}
+              {agentTrace && !isSubmitted && (
+                <AgentReasoningPanel trace={agentTrace} />
+              )}
 
               {/* Consolidated summary */}
               <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
