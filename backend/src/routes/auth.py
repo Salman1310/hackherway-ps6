@@ -39,7 +39,18 @@ def login(body: LoginRequest) -> dict:
     )
     db.commit()
 
-    APPROVER_IDS = {"RAJ01", "DEEPA01"}
+    # Determine role from approver_routing table (manager of any item = approver)
+    is_approver = db.execute(
+        "SELECT 1 FROM approver_routing WHERE approver_name = (SELECT name FROM users WHERE acf2_id = ?) LIMIT 1",
+        (acf2_id,),
+    ).fetchone()
+    # Fallback: also check if user is listed as a manager of any employee
+    if not is_approver:
+        is_approver = db.execute(
+            "SELECT 1 FROM users WHERE manager = (SELECT name FROM users WHERE acf2_id = ?) LIMIT 1",
+            (acf2_id,),
+        ).fetchone()
+
     user = dict(row)
-    user["role"] = "approver" if acf2_id in APPROVER_IDS else "employee"
+    user["role"] = "approver" if is_approver else "employee"
     return {"user": user}

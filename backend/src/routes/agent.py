@@ -58,7 +58,7 @@ def _ensure_conversation(
 
     new_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO conversations (id, acf2_id, created_at, updated_at, session_json) "
+        "INSERT OR IGNORE INTO conversations (id, acf2_id, created_at, updated_at, session_json) "
         "VALUES (?, ?, ?, ?, ?)",
         (new_id, acf2_id, now, now, None),
     )

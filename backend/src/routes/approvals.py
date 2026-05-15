@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..lib.logger import log
+from ..lib.sqlite import get_db
 
 router = APIRouter()
 
@@ -35,6 +36,7 @@ JIRA_ROUTED_SYSTEMS = {
 
 
 def _query(sql: str):
+    """Legacy helper using MCP server — kept for dynamic SQL that cannot be parameterized."""
     from mcp_server.sqlite_server import query_db
     result = query_db(sql)
     parsed = json.loads(result)
@@ -44,6 +46,7 @@ def _query(sql: str):
 
 
 def _execute(sql: str) -> dict:
+    """Legacy helper using MCP server — kept for dynamic SQL that cannot be parameterized."""
     from mcp_server.sqlite_server import execute_db
     result = execute_db(sql)
     parsed = json.loads(result)
@@ -52,8 +55,19 @@ def _execute(sql: str) -> dict:
     return parsed
 
 
-def _esc(value: str) -> str:
-    return str(value).replace("'", "''")
+def _safe_query(sql: str, params: tuple = ()):
+    """Parameterized SELECT using direct sqlite3 — immune to SQL injection."""
+    db = get_db()
+    rows = db.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _safe_execute(sql: str, params: tuple = ()):
+    """Parameterized INSERT/UPDATE using direct sqlite3 — immune to SQL injection."""
+    db = get_db()
+    cursor = db.execute(sql, params)
+    db.commit()
+    return {"rows_affected": cursor.rowcount, "success": True}
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -76,7 +90,7 @@ class ApprovalAction(BaseModel):
 @router.post("/submit")
 def submit_request(body: SubmitRequest):
     # Validate user
-    user_rows = _query(f"SELECT * FROM users WHERE acf2_id = '{_esc(body.acf2_id)}'")
+    user_rows = _safe_query("SELECT * FROM users WHERE acf2_id = ?", (body.acf2_id,))
     if not user_rows:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -86,8 +100,8 @@ def submit_request(body: SubmitRequest):
     requester_name = user.get("name", body.acf2_id)
 
     # Get designation title
-    designation_rows = _query(
-        f"SELECT title FROM designations WHERE id = '{_esc(body.designation_id)}'"
+    designation_rows = _safe_query(
+        "SELECT title FROM designations WHERE id = ?", (body.designation_id,)
     )
     role_title = designation_rows[0]["title"] if designation_rows else body.designation_id
 
@@ -96,10 +110,10 @@ def submit_request(body: SubmitRequest):
     now = int(time.time())
     bundle_ids = json.dumps([item.get("id", "") for item in body.final_bundle])
 
-    _execute(
-        f"INSERT INTO access_requests (id, acf2_id, designation_id, final_bundle, status, created_at) "
-        f"VALUES ('{request_id}', '{_esc(body.acf2_id)}', '{_esc(body.designation_id)}', "
-        f"'{_esc(bundle_ids)}', 'pending_approval', {now})"
+    _safe_execute(
+        "INSERT INTO access_requests (id, acf2_id, designation_id, final_bundle, status, created_at) "
+        "VALUES (?, ?, ?, ?, 'pending_approval', ?)",
+        (request_id, body.acf2_id, body.designation_id, bundle_ids, now),
     )
 
     # Create approval events for each item
@@ -109,18 +123,17 @@ def submit_request(body: SubmitRequest):
         item_name = item.get("name", item_id)
 
         # Look up routing, fallback to manager
-        routing = _query(
-            f"SELECT * FROM approver_routing WHERE access_item = '{_esc(item_id)}'"
+        routing = _safe_query(
+            "SELECT * FROM approver_routing WHERE access_item = ?", (item_id,)
         )
         approver = routing[0]["approver_name"] if routing else manager
 
         event_id = str(uuid.uuid4())
-        _execute(
-            f"INSERT INTO approval_events "
-            f"(id, access_request_id, acf2_id, role, team, access_item, approver, status, submitted_at) "
-            f"VALUES ('{event_id}', '{request_id}', '{_esc(body.acf2_id)}', "
-            f"'{_esc(role_title)}', '{_esc(team)}', '{_esc(item_id)}', "
-            f"'{_esc(approver)}', 'pending', {now})"
+        _safe_execute(
+            "INSERT INTO approval_events "
+            "(id, access_request_id, acf2_id, role, team, access_item, approver, status, submitted_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (event_id, request_id, body.acf2_id, role_title, team, item_id, approver, now),
         )
         events_created.append({
             "event_id": event_id,
@@ -131,11 +144,11 @@ def submit_request(body: SubmitRequest):
 
     # Audit log
     audit_id = str(uuid.uuid4())
-    details = _esc(json.dumps({"items": len(events_created), "manager": manager}))
-    _execute(
-        f"INSERT INTO audit_log (id, acf2_id, access_request_id, event_type, details, created_at) "
-        f"VALUES ('{audit_id}', '{_esc(body.acf2_id)}', '{request_id}', "
-        f"'request_submitted', '{details}', {now})"
+    details = json.dumps({"items": len(events_created), "manager": manager})
+    _safe_execute(
+        "INSERT INTO audit_log (id, acf2_id, access_request_id, event_type, details, created_at) "
+        "VALUES (?, ?, ?, 'request_submitted', ?, ?)",
+        (audit_id, body.acf2_id, request_id, details, now),
     )
 
     # Send Teams notification
@@ -160,9 +173,20 @@ def submit_request(body: SubmitRequest):
             role_title=role_title,
             team=team,
             final_bundle=body.final_bundle,
+            events_created=events_created,
         )
 
-    log("AGENT", f"Request submitted: {request_id} ({len(events_created)} items, teams={teams_sent})")
+    # Create Jira tickets for Jira-routed items via MCP server
+    jira_tickets_created = _create_jira_tickets(
+        request_id=request_id,
+        acf2_id=body.acf2_id,
+        requester_name=requester_name,
+        role_title=role_title,
+        events_created=events_created,
+        final_bundle=body.final_bundle,
+    )
+
+    log("AGENT", f"Request submitted: {request_id} ({len(events_created)} items, teams={teams_sent}, jira={len(jira_tickets_created)})")
 
     return {
         "request_id": request_id,
@@ -170,6 +194,7 @@ def submit_request(body: SubmitRequest):
         "events": events_created,
         "manager": manager,
         "teams_notified": teams_sent,
+        "jira_tickets": jira_tickets_created,
     }
 
 
@@ -177,30 +202,32 @@ def submit_request(body: SubmitRequest):
 
 @router.get("/my-requests")
 def get_my_requests(acf2_id: str):
-    requests = _query(
-        f"SELECT * FROM access_requests WHERE acf2_id = '{_esc(acf2_id)}' "
-        f"ORDER BY created_at DESC"
+    requests = _safe_query(
+        "SELECT * FROM access_requests WHERE acf2_id = ? ORDER BY created_at DESC",
+        (acf2_id,),
     )
 
     enriched = []
     for req in requests:
         # Designation title
-        designation_rows = _query(
-            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        designation_rows = _safe_query(
+            "SELECT title FROM designations WHERE id = ?",
+            (req.get("designation_id", ""),),
         )
         role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
 
         # Approval events for this request
-        events = _query(
-            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
-            f"ORDER BY submitted_at ASC"
+        events = _safe_query(
+            "SELECT * FROM approval_events WHERE access_request_id = ? ORDER BY submitted_at ASC",
+            (req["id"],),
         )
 
         # Enrich events with display names
         for event in events:
-            item_rows = _query(
-                f"SELECT display_name, system FROM role_access_items "
-                f"WHERE access_item = '{_esc(event['access_item'])}' LIMIT 1"
+            item_rows = _safe_query(
+                "SELECT display_name, system FROM role_access_items "
+                "WHERE access_item = ? LIMIT 1",
+                (event["access_item"],),
             )
             if item_rows:
                 event["display_name"] = item_rows[0].get("display_name", event["access_item"])
@@ -243,20 +270,21 @@ def get_my_requests(acf2_id: str):
 
 @router.get("/status/{request_id}")
 def get_approval_status(request_id: str):
-    events = _query(
-        f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(request_id)}' "
-        f"ORDER BY submitted_at ASC"
+    events = _safe_query(
+        "SELECT * FROM approval_events WHERE access_request_id = ? ORDER BY submitted_at ASC",
+        (request_id,),
     )
 
-    request_rows = _query(f"SELECT * FROM access_requests WHERE id = '{_esc(request_id)}'")
+    request_rows = _safe_query("SELECT * FROM access_requests WHERE id = ?", (request_id,))
     request_info = request_rows[0] if request_rows else None
 
     # Enrich with display names
     for event in events:
         access_item = event["access_item"]
-        item_rows = _query(
-            f"SELECT display_name, system FROM role_access_items "
-            f"WHERE access_item = '{_esc(access_item)}' LIMIT 1"
+        item_rows = _safe_query(
+            "SELECT display_name, system FROM role_access_items "
+            "WHERE access_item = ? LIMIT 1",
+            (access_item,),
         )
         if item_rows:
             event["display_name"] = item_rows[0].get("display_name", access_item)
@@ -300,48 +328,79 @@ def approval_action(body: ApprovalAction):
     if body.action not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="Action must be 'approved' or 'rejected'")
 
-    existing = _query(f"SELECT * FROM approval_events WHERE id = '{_esc(body.event_id)}'")
-    if not existing:
-        raise HTTPException(status_code=404, detail="Approval event not found")
+    # Use a transaction to prevent race conditions in check-then-update
+    db = get_db()
+    try:
+        # BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent updates
+        db.execute("BEGIN IMMEDIATE")
 
-    event = existing[0]
-    if event["status"] != "pending":
-        raise HTTPException(status_code=400, detail="This approval has already been resolved")
+        existing = db.execute(
+            "SELECT * FROM approval_events WHERE id = ?", (body.event_id,)
+        ).fetchall()
+        if not existing:
+            db.execute("ROLLBACK")
+            raise HTTPException(status_code=404, detail="Approval event not found")
 
-    now = int(time.time())
-    approver = _esc(body.approver_name or event.get("approver", "Manager"))
+        event = dict(existing[0])
+        if event["status"] != "pending":
+            db.execute("ROLLBACK")
+            raise HTTPException(status_code=400, detail="This approval has already been resolved")
 
-    _execute(
-        f"UPDATE approval_events SET status = '{body.action}', "
-        f"approver = '{approver}', resolved_at = {now} "
-        f"WHERE id = '{_esc(body.event_id)}'"
-    )
+        now = int(time.time())
+        approver = body.approver_name or event.get("approver", "Manager")
 
-    # Check if all events for this request are resolved
-    request_id = event["access_request_id"]
-    all_events = _query(
-        f"SELECT status FROM approval_events WHERE access_request_id = '{_esc(request_id)}'"
-    )
-    all_resolved = all(e["status"] != "pending" for e in all_events)
-    all_approved = all(e["status"] == "approved" for e in all_events)
+        db.execute(
+            "UPDATE approval_events SET status = ?, approver = ?, resolved_at = ? WHERE id = ?",
+            (body.action, approver, now, body.event_id),
+        )
+
+        # Check if all events for this request are resolved (inside same transaction)
+        request_id = event["access_request_id"]
+        all_events = [
+            dict(r) for r in db.execute(
+                "SELECT status FROM approval_events WHERE access_request_id = ?",
+                (request_id,),
+            ).fetchall()
+        ]
+        all_resolved = all(e["status"] != "pending" for e in all_events)
+        all_approved = all(e["status"] == "approved" for e in all_events)
+
+        if all_resolved:
+            new_status = "approved" if all_approved else "partially_rejected"
+            db.execute(
+                "UPDATE access_requests SET status = ? WHERE id = ?",
+                (new_status, request_id),
+            )
+
+        # Audit log (inside transaction)
+        audit_id = str(uuid.uuid4())
+        action_details = json.dumps({"item": event["access_item"], "by": body.approver_name or "Manager"})
+        db.execute(
+            "INSERT INTO audit_log (id, acf2_id, access_request_id, event_type, details, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (audit_id, event["acf2_id"], request_id, f"approval_{body.action}", action_details, now),
+        )
+
+        db.execute("COMMIT")
+    except HTTPException:
+        raise
+    except Exception:
+        db.execute("ROLLBACK")
+        raise
 
     if all_resolved:
-        new_status = "approved" if all_approved else "partially_rejected"
-        _execute(
-            f"UPDATE access_requests SET status = '{new_status}' "
-            f"WHERE id = '{_esc(request_id)}'"
-        )
         log("AGENT", f"Request {request_id} fully resolved: {new_status}")
 
-        # Notify Teams that the request is fully resolved
+        # Notify Teams that the request is fully resolved (outside transaction)
         if TEAMS_WEBHOOK_URL:
-            req_rows = _query(f"SELECT * FROM access_requests WHERE id = '{_esc(request_id)}'")
+            req_rows = _safe_query("SELECT * FROM access_requests WHERE id = ?", (request_id,))
             if req_rows:
                 req_info = req_rows[0]
-                user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req_info['acf2_id'])}'")
+                user_rows = _safe_query("SELECT name FROM users WHERE acf2_id = ?", (req_info["acf2_id"],))
                 requester_name = user_rows[0]["name"] if user_rows else req_info["acf2_id"]
-                desig_rows = _query(
-                    f"SELECT title FROM designations WHERE id = '{_esc(req_info.get('designation_id', ''))}'"
+                desig_rows = _safe_query(
+                    "SELECT title FROM designations WHERE id = ?",
+                    (req_info.get("designation_id", ""),),
                 )
                 role_title = desig_rows[0]["title"] if desig_rows else req_info.get("designation_id", "")
                 _send_teams_resolution(
@@ -352,16 +411,6 @@ def approval_action(body: ApprovalAction):
                     all_approved=all_approved,
                     item_count=len(all_events),
                 )
-
-    # Audit log
-    audit_id = str(uuid.uuid4())
-    event_acf2 = _esc(event["acf2_id"])
-    action_details = _esc(json.dumps({"item": event["access_item"], "by": body.approver_name or "Manager"}))
-    _execute(
-        f"INSERT INTO audit_log (id, acf2_id, access_request_id, event_type, details, created_at) "
-        f"VALUES ('{audit_id}', '{event_acf2}', '{_esc(request_id)}', "
-        f"'approval_{body.action}', '{action_details}', {now})"
-    )
 
     log("AGENT", f"Approval {body.event_id}: {body.action} by {approver}")
     return {
@@ -383,21 +432,29 @@ def _fire_n8n_webhook(
     role_title: str,
     team: str,
     final_bundle: list[dict],
+    events_created: list[dict] | None = None,
 ) -> None:
     """Fire-and-forget POST to n8n for Jira-routed access items."""
+    # Build event_id lookup from approval events
+    event_map: dict[str, str] = {}
+    for ev in (events_created or []):
+        event_map[ev.get("access_item", "")] = ev.get("event_id", "")
+
     # Enrich each item with its system tag from the DB
     enriched_items = []
     for item in final_bundle:
         item_id = item.get("id", "")
-        item_rows = _query(
-            f"SELECT display_name, system, servicenow_catalog_item_id "
-            f"FROM role_access_items WHERE access_item = '{_esc(item_id)}' LIMIT 1"
+        item_rows = _safe_query(
+            "SELECT display_name, system, servicenow_catalog_item_id "
+            "FROM role_access_items WHERE access_item = ? LIMIT 1",
+            (item_id,),
         )
         system = item_rows[0].get("system", "") if item_rows else ""
         display_name = item_rows[0].get("display_name", item_id) if item_rows else item_id
         catalog_id = item_rows[0].get("servicenow_catalog_item_id", "") if item_rows else ""
         enriched_items.append({
             "id": item_id,
+            "event_id": event_map.get(item_id, ""),
             "display_name": display_name,
             "system": system,
             "catalog_id": catalog_id,
@@ -412,6 +469,8 @@ def _fire_n8n_webhook(
         "team": team,
         "items": enriched_items,
         "jira_items": [i for i in enriched_items if i["jira_routed"]],
+        "callback_url": f"{BACKEND_PUBLIC_URL}/api/approvals/action",
+        "jira_project_key": "HACK",
     }
 
     try:
@@ -425,6 +484,86 @@ def _fire_n8n_webhook(
         log("AGENT", f"n8n webhook fired: {len(payload['jira_items'])} Jira-routed items")
     except Exception as exc:
         log("AGENT", f"n8n webhook failed (non-critical): {exc}")
+
+
+# ── Jira Ticket Creation via MCP ────────────────────────────────────────────
+
+def _create_jira_tickets(
+    request_id: str,
+    acf2_id: str,
+    requester_name: str,
+    role_title: str,
+    events_created: list[dict],
+    final_bundle: list[dict],
+) -> list[dict]:
+    """Create Jira tickets for Jira-routed items and store mapping in DB."""
+    from mcp_server.jira_server import create_jira_ticket, _is_configured
+
+    if not _is_configured():
+        return []
+
+    # Build event_id lookup
+    event_map: dict[str, str] = {}
+    for ev in events_created:
+        event_map[ev.get("access_item", "")] = ev.get("event_id", "")
+
+    tickets_created = []
+    for item in final_bundle:
+        item_id = item.get("id", "")
+        item_rows = _safe_query(
+            "SELECT display_name, system FROM role_access_items "
+            "WHERE access_item = ? LIMIT 1",
+            (item_id,),
+        )
+        system = item_rows[0].get("system", "") if item_rows else ""
+        display_name = item_rows[0].get("display_name", item_id) if item_rows else item_id
+
+        if system not in JIRA_ROUTED_SYSTEMS:
+            continue
+
+        event_id = event_map.get(item_id, "")
+        if not event_id:
+            continue
+
+        summary = f"[Access Request] {requester_name} — {display_name}"
+        description = (
+            f"ACF2: {acf2_id}\n"
+            f"Role: {role_title}\n"
+            f"System: {system}\n"
+            f"Access Item: {display_name}\n"
+            f"Event ID: {event_id}\n"
+            f"Request ID: {request_id}"
+        )
+        labels = [
+            f"ACF2_{acf2_id}",
+            f"event_{event_id}",
+            f"req_{request_id[:8]}",
+        ]
+
+        result_json = create_jira_ticket(summary, description, labels)
+        result = json.loads(result_json)
+
+        if result.get("success"):
+            ticket_key = result["key"]
+            now = int(time.time())
+            # Store mapping in jira_tickets table
+            ticket_id = str(uuid.uuid4())
+            _safe_execute(
+                "INSERT INTO jira_tickets (id, event_id, request_id, ticket_key, acf2_id, access_item, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+                (ticket_id, event_id, request_id, ticket_key, acf2_id, item_id, now),
+            )
+            tickets_created.append({
+                "event_id": event_id,
+                "ticket_key": ticket_key,
+                "display_name": display_name,
+                "url": result.get("url", ""),
+            })
+            log("AGENT", f"Jira ticket created: {ticket_key} for {display_name} (event={event_id})")
+        else:
+            log("AGENT", f"Jira ticket creation failed for {display_name}: {result.get('error', 'unknown')}")
+
+    return tickets_created
 
 
 # ── Teams Webhook ────────────────────────────────────────────────────────────

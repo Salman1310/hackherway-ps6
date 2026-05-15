@@ -41,6 +41,7 @@ def ts(year: int, month: int, day: int, hour: int = 10, minute: int = 0) -> int:
 SCHEMA = """
 PRAGMA foreign_keys = OFF;
 
+DROP TABLE IF EXISTS jira_tickets;
 DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS conversations;
 DROP TABLE IF EXISTS template_drafts;
@@ -197,6 +198,19 @@ CREATE TABLE messages (
     content         TEXT NOT NULL,
     created_at      INTEGER NOT NULL,
     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
+);
+
+CREATE TABLE jira_tickets (
+    id              TEXT PRIMARY KEY,
+    event_id        TEXT NOT NULL,
+    request_id      TEXT NOT NULL,
+    ticket_key      TEXT NOT NULL,
+    acf2_id         TEXT NOT NULL,
+    access_item     TEXT NOT NULL,
+    status          TEXT DEFAULT 'open',
+    created_at      INTEGER NOT NULL,
+    FOREIGN KEY(event_id) REFERENCES approval_events(id),
+    FOREIGN KEY(request_id) REFERENCES access_requests(id)
 );
 """
 

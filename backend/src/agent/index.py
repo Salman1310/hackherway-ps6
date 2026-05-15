@@ -143,9 +143,9 @@ Do not use legacy JSON template columns.
 ## Matching behavior
 1. Use the verified employee context supplied in the user message.
 2. If the role request is vague, ask one focused clarifying question and do not query the database.
-3. If the role request is clear, query designations for likely candidates using title, description, team_hint, or dept_hint.
-4. You MUST then query role_access_items for the selected designation_id even if you do not list the items in chat:
-   SELECT * FROM role_access_items WHERE designation_id = '<id>' ORDER BY mandatory DESC, sort_order ASC
+3. If the role request is clear, query designations matching the STATED ROLE TITLE first — match on title and description. Only use team_hint or dept_hint as tiebreakers, never as the primary filter. The employee's stated role always takes priority over their current team.
+4. Pick the single best matching designation_id based on the stated role. Then you MUST query role_access_items for that designation_id:
+   SELECT * FROM role_access_items WHERE designation_id = '<best_match_id>' ORDER BY mandatory DESC, sort_order ASC
    This query is required — it builds the right panel display. Do not skip it.
 5. After both queries succeed, tell the employee in 1-2 sentences that their access template has been matched and is visible in the panel on the right. Do not enumerate access items in chat.
 6. If there is no suitable template, say that the role could not be matched yet and that an admin review is needed.
@@ -178,22 +178,13 @@ def handle_agent_message(
     if not session.acf2_id:
         return _handle_acf2_phase(content, history)
 
-    if _contains_acf2_id(content):
-        name = (
-            session.workday_context.name
-            if session.workday_context and session.workday_context.name
-            else "this user"
-        )
-        return {
-            "reply": (
-                f"You're already verified as {name}. To use a different ID, "
-                "reset the chat and start again."
-            )
-        }
-
     # Phase 3: template selected — negotiate optional items and submit
     if session.selected_template:
         return _handle_submission_phase(content, session, history)
+
+    # Auto role-check on login: check user_designations and confirm
+    if "just logged in" in content.lower() and "check my existing role" in content.lower():
+        return _handle_role_confirmation(content, session)
 
     # Phase 2: identity verified, no template yet — resolve role
     return _handle_role_phase(content, session, history)
@@ -310,6 +301,130 @@ def _handle_acf2_phase(content: str, history: List[ChatMessage]) -> dict:
     return {"reply": FALLBACK_REPLY}
 
 
+def _handle_role_confirmation(content: str, session: SessionState) -> dict:
+    """Check user_designations for existing role and offer confirmation."""
+    log_agent(f"Role confirmation check for {session.acf2_id}")
+
+    acf2_id = session.acf2_id or ""
+    workday = session.workday_context
+    name = workday.name if workday else acf2_id
+
+    # Look up existing role assignment
+    result = _mcp_query_db(
+        f"SELECT ud.designation_id, d.title, d.description "
+        f"FROM user_designations ud "
+        f"JOIN designations d ON d.id = ud.designation_id "
+        f"WHERE ud.acf2_id = {_sql_literal(acf2_id)}"
+    )
+
+    try:
+        rows = json.loads(result)
+    except Exception:
+        rows = []
+
+    if isinstance(rows, list) and rows:
+        designation = rows[0]
+        role_title = designation.get("title", "Unknown")
+        log_agent(f"Found existing role: {role_title}")
+        return {
+            "reply": (
+                f"Welcome back, {name.split()[0]}! I can see your role is "
+                f"{role_title} in {workday.team if workday else 'your team'}. "
+                f"Would you like me to load the access template for this role? "
+                f"If your role has changed, just tell me your new role."
+            ),
+            "session_update": {
+                "acf2_id": acf2_id,
+                "workday_context": {
+                    "name": workday.name if workday else "",
+                    "team": workday.team if workday else "",
+                    "manager": workday.manager if workday else "",
+                    "dept": workday.dept if workday else "",
+                    "employment_type": workday.employment_type if workday else "",
+                },
+            },
+        }
+    else:
+        log_agent("No existing role found, prompting for role")
+        return {
+            "reply": (
+                f"Hi {name.split()[0]}! You're verified as {acf2_id} "
+                f"({workday.team if workday else 'your team'}). "
+                f"I don't have a role on file for you yet. "
+                f"What will your role be? For example: Data Analyst, Backend Developer, etc."
+            ),
+            "session_update": {
+                "acf2_id": acf2_id,
+                "workday_context": {
+                    "name": workday.name if workday else "",
+                    "team": workday.team if workday else "",
+                    "manager": workday.manager if workday else "",
+                    "dept": workday.dept if workday else "",
+                    "employment_type": workday.employment_type if workday else "",
+                },
+            },
+        }
+
+
+def _load_template_directly(
+    designation_id: str, employee_context: dict, session: SessionState
+) -> dict:
+    """Load template directly from a known designation_id without Bedrock."""
+    log_agent(f"Loading template directly for designation: {designation_id}")
+
+    # Fetch designation
+    d_result = _mcp_query_db(
+        f"SELECT * FROM designations WHERE id = {_sql_literal(designation_id)}"
+    )
+    try:
+        d_rows = json.loads(d_result)
+    except Exception:
+        d_rows = []
+
+    if not isinstance(d_rows, list) or not d_rows:
+        return {"reply": "I couldn't find that role template. Please tell me your role and I'll look it up."}
+
+    designation = d_rows[0]
+
+    # Fetch access items
+    a_result = _mcp_query_db(
+        f"SELECT * FROM role_access_items WHERE designation_id = {_sql_literal(designation_id)} "
+        f"ORDER BY mandatory DESC, sort_order ASC"
+    )
+    try:
+        access_rows = json.loads(a_result)
+    except Exception:
+        access_rows = []
+
+    if not isinstance(access_rows, list) or not access_rows:
+        return {"reply": "I found your role but no access items are configured for it. Please contact your admin."}
+
+    selected_template = _build_selected_template(designation, access_rows, "Loaded from existing role")
+    resolved_role = _build_resolved_role(selected_template, employee_context)
+    final_bundle = selected_template["mandatory_access"]
+    agent_trace = _build_agent_trace([designation], access_rows, selected_template, employee_context)
+
+    role_title = designation.get("title", designation_id)
+    mandatory_count = len(selected_template["mandatory_access"])
+    optional_count = len(selected_template["optional_access"])
+
+    log_agent(f"Template loaded: {role_title} ({mandatory_count}M + {optional_count}O items)")
+
+    return {
+        "reply": (
+            f"Your {role_title} access template is loaded in the panel on the right. "
+            f"It includes {mandatory_count} mandatory and {optional_count} optional items. "
+            f"Review the optional items, toggle any you need, and say \"submit\" when ready."
+        ),
+        "session_update": {
+            "resolved_role": resolved_role,
+            "selected_template": selected_template,
+            "final_bundle": final_bundle,
+            "agent_trace": agent_trace,
+        },
+    }
+
+
 def _handle_role_phase(
     content: str, session: SessionState, history: List[ChatMessage]
 ) -> dict:
@@ -325,8 +440,29 @@ def _handle_role_phase(
         "employment_type": workday.employment_type if workday else "",
     }
 
-    messages = _build_bedrock_history(history)
-    messages.append(
+    # If user confirms existing role ("yes", "correct", "that's right", etc.)
+    lowered = content.strip().lower()
+    affirmatives = {"yes", "yeah", "yep", "correct", "that's right", "thats right",
+                    "sure", "confirm", "confirmed", "ok", "okay", "go ahead", "proceed",
+                    "yes please", "load it", "yes load"}
+    if lowered in affirmatives or (len(lowered) < 20 and any(a in lowered for a in affirmatives)):
+        # Load template from existing user_designations
+        existing = _mcp_query_db(
+            f"SELECT designation_id FROM user_designations "
+            f"WHERE acf2_id = {_sql_literal(session.acf2_id or '')}"
+        )
+        try:
+            existing_rows = json.loads(existing)
+        except Exception:
+            existing_rows = []
+
+        if isinstance(existing_rows, list) and existing_rows:
+            designation_id = existing_rows[0]["designation_id"]
+            return _load_template_directly(designation_id, employee_context, session)
+
+    # Do NOT pass chat history here — previous role assignments in history
+    # cause Bedrock to match the old role instead of the current request.
+    messages = [
         {
             "role": "user",
             "content": [
@@ -339,7 +475,7 @@ def _handle_role_phase(
                 }
             ],
         }
-    )
+    ]
 
     candidate_designations: list[dict] = []
     role_access_rows: list[dict] = []
@@ -405,8 +541,16 @@ def _handle_role_phase(
                     role_access_rows = fallback_match["access_rows"]
 
             if candidate_designations and role_access_rows:
+                # Use the designation that matches what Bedrock actually queried
+                # (role_access_rows[0]["designation_id"]) rather than blindly
+                # taking candidate_designations[0] which may be wrong order.
+                actual_designation_id = role_access_rows[0].get("designation_id", "")
+                best_designation = next(
+                    (d for d in candidate_designations if d["id"] == actual_designation_id),
+                    candidate_designations[0],
+                )
                 selected_template = _build_selected_template(
-                    candidate_designations[0], role_access_rows, result["reply"]
+                    best_designation, role_access_rows, result["reply"]
                 )
                 resolved_role = _build_resolved_role(
                     selected_template, employee_context

@@ -10,20 +10,15 @@ Returns access requests formatted as ServiceNow RITM records.
 import json
 from fastapi import APIRouter, HTTPException
 
+from ..lib.sqlite import get_db
+
 router = APIRouter()
 
 
-def _query(sql: str):
-    from mcp_server.sqlite_server import query_db
-    result = query_db(sql)
-    parsed = json.loads(result)
-    if isinstance(parsed, dict) and "error" in parsed:
-        raise HTTPException(status_code=400, detail=parsed["error"])
-    return parsed
-
-
-def _esc(value: str) -> str:
-    return str(value).replace("'", "''")
+def _safe_query(sql: str, params: tuple = ()):
+    db = get_db()
+    rows = db.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 _STATUS_MAP = {
@@ -50,22 +45,23 @@ def _ritm_number(request_id: str) -> str:
 @router.get("/ritms")
 def get_ritms(acf2_id: str):
     # Validate user exists
-    user_rows = _query(f"SELECT * FROM users WHERE acf2_id = '{_esc(acf2_id)}'")
+    user_rows = _safe_query("SELECT * FROM users WHERE acf2_id = ?", (acf2_id,))
     if not user_rows:
         raise HTTPException(status_code=404, detail="User not found")
 
     user = user_rows[0]
     requester_name = user.get("name", acf2_id)
 
-    requests = _query(
-        f"SELECT * FROM access_requests WHERE acf2_id = '{_esc(acf2_id)}' "
-        f"ORDER BY created_at DESC"
+    requests = _safe_query(
+        "SELECT * FROM access_requests WHERE acf2_id = ? ORDER BY created_at DESC",
+        (acf2_id,),
     )
 
     ritms = []
     for req in requests:
-        designation_rows = _query(
-            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        designation_rows = _safe_query(
+            "SELECT title FROM designations WHERE id = ?",
+            (req.get("designation_id", ""),),
         )
         role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
 
@@ -78,9 +74,10 @@ def get_ritms(acf2_id: str):
         # Fetch catalog details for each item
         catalog_items = []
         for item_id in bundle_ids:
-            item_rows = _query(
-                f"SELECT display_name, system, servicenow_catalog_item_id "
-                f"FROM role_access_items WHERE access_item = '{_esc(item_id)}' LIMIT 1"
+            item_rows = _safe_query(
+                "SELECT display_name, system, servicenow_catalog_item_id "
+                "FROM role_access_items WHERE access_item = ? LIMIT 1",
+                (item_id,),
             )
             if item_rows:
                 row = item_rows[0]
@@ -121,27 +118,29 @@ def get_ritms(acf2_id: str):
 @router.get("/pending-ritms")
 def get_pending_ritms():
     """Return all access requests with pending approvals — for the approver view."""
-    requests = _query(
+    requests = _safe_query(
         "SELECT * FROM access_requests "
         "WHERE status NOT IN ('approved', 'fully_approved') "
-        "ORDER BY created_at DESC"
+        "ORDER BY created_at DESC",
     )
 
     ritms = []
     for req in requests:
         # Only include if there are actual pending approval events
-        pending_events = _query(
-            f"SELECT * FROM approval_events "
-            f"WHERE access_request_id = '{_esc(req['id'])}' AND status = 'pending'"
+        pending_events = _safe_query(
+            "SELECT * FROM approval_events "
+            "WHERE access_request_id = ? AND status = 'pending'",
+            (req["id"],),
         )
         if not pending_events:
             continue
 
-        user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req['acf2_id'])}'")
+        user_rows = _safe_query("SELECT name FROM users WHERE acf2_id = ?", (req["acf2_id"],))
         requester_name = user_rows[0]["name"] if user_rows else req["acf2_id"]
 
-        designation_rows = _query(
-            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        designation_rows = _safe_query(
+            "SELECT title FROM designations WHERE id = ?",
+            (req.get("designation_id", ""),),
         )
         role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
 
@@ -152,9 +151,10 @@ def get_pending_ritms():
 
         catalog_items = []
         for item_id in bundle_ids:
-            item_rows = _query(
-                f"SELECT display_name, system, servicenow_catalog_item_id "
-                f"FROM role_access_items WHERE access_item = '{_esc(item_id)}' LIMIT 1"
+            item_rows = _safe_query(
+                "SELECT display_name, system, servicenow_catalog_item_id "
+                "FROM role_access_items WHERE access_item = ? LIMIT 1",
+                (item_id,),
             )
             if item_rows:
                 row = item_rows[0]
@@ -168,15 +168,17 @@ def get_pending_ritms():
                 catalog_items.append({"id": item_id, "display_name": item_id, "system": "", "catalog_id": ""})
 
         # Build per-item approval events with status
-        all_events = _query(
-            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
-            f"ORDER BY submitted_at ASC"
+        all_events = _safe_query(
+            "SELECT * FROM approval_events WHERE access_request_id = ? "
+            "ORDER BY submitted_at ASC",
+            (req["id"],),
         )
         approval_items = []
         for ev in all_events:
-            item_rows = _query(
-                f"SELECT display_name FROM role_access_items "
-                f"WHERE access_item = '{_esc(ev['access_item'])}' LIMIT 1"
+            item_rows = _safe_query(
+                "SELECT display_name FROM role_access_items "
+                "WHERE access_item = ? LIMIT 1",
+                (ev["access_item"],),
             )
             display_name = item_rows[0]["display_name"] if item_rows else ev["access_item"]
             approval_items.append({
@@ -210,32 +212,35 @@ def get_pending_ritms():
 @router.get("/resolved-ritms")
 def get_resolved_ritms():
     """Return all fully resolved requests — for the approver completed tab."""
-    requests = _query(
+    requests = _safe_query(
         "SELECT * FROM access_requests "
         "WHERE status IN ('approved', 'fully_approved', 'partially_rejected') "
-        "ORDER BY created_at DESC"
+        "ORDER BY created_at DESC",
     )
 
     ritms = []
     for req in requests:
-        user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req['acf2_id'])}'")
+        user_rows = _safe_query("SELECT name FROM users WHERE acf2_id = ?", (req["acf2_id"],))
         requester_name = user_rows[0]["name"] if user_rows else req["acf2_id"]
 
-        designation_rows = _query(
-            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        designation_rows = _safe_query(
+            "SELECT title FROM designations WHERE id = ?",
+            (req.get("designation_id", ""),),
         )
         role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
 
-        all_events = _query(
-            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
-            f"ORDER BY submitted_at ASC"
+        all_events = _safe_query(
+            "SELECT * FROM approval_events WHERE access_request_id = ? "
+            "ORDER BY submitted_at ASC",
+            (req["id"],),
         )
 
         approval_items = []
         for ev in all_events:
-            item_rows = _query(
-                f"SELECT display_name FROM role_access_items "
-                f"WHERE access_item = '{_esc(ev['access_item'])}' LIMIT 1"
+            item_rows = _safe_query(
+                "SELECT display_name FROM role_access_items "
+                "WHERE access_item = ? LIMIT 1",
+                (ev["access_item"],),
             )
             display_name = item_rows[0]["display_name"] if item_rows else ev["access_item"]
             approval_items.append({

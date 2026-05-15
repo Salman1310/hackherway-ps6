@@ -112,7 +112,7 @@ function AgentReasoningPanel({ trace }: { trace: AgentTrace }) {
 }
 
 export default function RightPanel() {
-  const { session, setSession } = useSession();
+  const { session, setSession, setMessages } = useSession();
   const template = session.selected_template;
   const resolvedRole = session.resolved_role;
   const workday = session.workday_context;
@@ -181,6 +181,14 @@ export default function RightPanel() {
         const data = await res.json();
         setSession((prev) => ({ ...prev, request_id: data.request_id }));
         setTeamsNotified(data.teams_notified ?? false);
+
+        const confirmMsg = {
+          id: `bot-submit-${Date.now()}`,
+          role: 'bot' as const,
+          content: `Your access request has been submitted successfully (ID: ${data.request_id.slice(0, 8)}…). ${totalSelected} item${totalSelected !== 1 ? 's' : ''} sent for approval to ${data.manager ?? 'your manager'}.${data.teams_notified ? ' Your manager has been notified via Microsoft Teams.' : ''} I'll keep you updated on the approval progress.`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, confirmMsg]);
       }
     } finally {
       setSubmitting(false);

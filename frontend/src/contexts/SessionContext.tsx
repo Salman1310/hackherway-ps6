@@ -21,11 +21,12 @@ const createInitialSession = (): SessionState => ({
   agent_trace: null,
 });
 
-const createWelcomeMessage = (): Message => ({
+const createWelcomeMessage = (authUser?: AuthUser | null): Message => ({
   id: 'welcome',
   role: 'bot',
-  content:
-    "Hi! I'm here to help set up your system access. Let's get started - what's your ACF2 ID?",
+  content: authUser
+    ? `Hi ${authUser.name.split(' ')[0]}! I can see you're logged in as ${authUser.acf2_id} (${authUser.team}). Let me check your role and get your access template ready. One moment...`
+    : "Hi! I'm here to help set up your system access. Let's get started - what's your ACF2 ID?",
   timestamp: new Date(),
 });
 
@@ -77,10 +78,74 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   function resetChat() {
-    setSession(createInitialSession());
-    setMessages([createWelcomeMessage()]);
+    if (authUser) {
+      setSession({
+        ...createInitialSession(),
+        acf2_id: authUser.acf2_id,
+        workday_context: {
+          name: authUser.name,
+          team: authUser.team,
+          manager: authUser.manager,
+          dept: authUser.dept,
+          employment_type: authUser.employment_type,
+        },
+      });
+      setMessages([createWelcomeMessage(authUser)]);
+      _autoStartRoleCheck(authUser);
+    } else {
+      setSession(createInitialSession());
+      setMessages([createWelcomeMessage()]);
+    }
     setConversationId(null);
     setIsLoading(false);
+  }
+
+  async function _autoStartRoleCheck(user: AuthUser) {
+    setIsLoading(true);
+    try {
+      const session: SessionState = {
+        ...createInitialSession(),
+        acf2_id: user.acf2_id,
+        workday_context: {
+          name: user.name,
+          team: user.team,
+          manager: user.manager,
+          dept: user.dept,
+          employment_type: user.employment_type,
+        },
+      };
+      const res = await fetch('/api/agent/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `I just logged in. My ACF2 ID is ${user.acf2_id}. Please check my existing role assignment and confirm it with me.`,
+          session,
+          history: [],
+          authenticated_acf2_id: user.acf2_id,
+          conversation_id: null,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const botMsg: Message = {
+          id: `bot-${Date.now()}`,
+          role: 'bot',
+          content: data.reply,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        if (data.session_update) {
+          setSession((prev) => ({ ...prev, ...data.session_update }));
+        }
+        if (data.conversation_id) {
+          setConversationId(data.conversation_id);
+        }
+      }
+    } catch {
+      // silent — user can still type manually
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function deleteMemory() {
@@ -102,7 +167,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   function logout() {
     window.localStorage.removeItem('hackherway.authUser');
     setAuthUser(null);
-    resetChat();
+    setSession(createInitialSession());
+    setMessages([createWelcomeMessage()]);
+    setConversationId(null);
+    setIsLoading(false);
   }
 
   async function restoreLatestConversation(acf2Id: string) {

@@ -17,6 +17,7 @@ class SessionState(BaseModel):
     selected_template: Optional[Any] = None
     final_bundle: List[Any] = []
     request_id: Optional[str] = None
+    agent_trace: Optional[Any] = None
 
 
 class ChatMessage(BaseModel):
