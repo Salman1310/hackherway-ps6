@@ -101,6 +101,10 @@ async def _poll_jira_status() -> None:
                         "approver = ?, resolved_at = ? WHERE id = ?",
                         (approver, now, event_id),
                     )
+                    db.execute(
+                        "UPDATE jira_tickets SET status = 'done' WHERE event_id = ?",
+                        (event_id,),
+                    )
                     db.commit()
                     log("AGENT", f"Jira approval detected: {ticket_key} -> {event_id} (by {approver})")
 

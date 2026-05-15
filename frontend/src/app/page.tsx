@@ -17,7 +17,7 @@ export default function Home() {
 }
 
 function LoginGate() {
-  const { authUser, setAuthUser, authReady, restoreLatestConversation } = useSession();
+  const { authUser, setAuthUser, authReady, startFreshWithUser } = useSession();
   const [acf2Id, setAcf2Id] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -41,7 +41,7 @@ function LoginGate() {
       const user = data.user as AuthUser;
       window.localStorage.setItem('hackherway.authUser', JSON.stringify(user));
       setAuthUser(user);
-      await restoreLatestConversation(user.acf2_id);
+      startFreshWithUser(user);
     } catch {
       setError('Unable to reach the backend. Is it running on port 8000?');
     } finally {

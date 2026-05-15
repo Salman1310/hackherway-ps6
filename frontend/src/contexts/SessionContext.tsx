@@ -44,6 +44,7 @@ type SessionContextType = {
   setIsLoading: Dispatch<SetStateAction<boolean>>;
   memoryVersion: number;
   resetChat: () => void;
+  startFreshWithUser: (user: AuthUser) => void;
   deleteMemory: () => Promise<void>;
   logout: () => void;
   loadConversation: (id: string) => Promise<void>;
@@ -68,7 +69,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(raw) as AuthUser;
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setAuthUser(parsed);
-        restoreLatestConversation(parsed.acf2_id);
+        restoreOrStartFresh(parsed);
       } catch {
         window.localStorage.removeItem('hackherway.authUser');
       }
@@ -77,27 +78,48 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function restoreOrStartFresh(user: AuthUser) {
+    try {
+      const res = await fetch(`/api/conversations?acf2_id=${encodeURIComponent(user.acf2_id)}`);
+      const data = await res.json();
+      const latest = data.conversations?.[0];
+      if (latest?.id) {
+        await loadConversation(latest.id);
+      } else {
+        startFreshWithUser(user);
+      }
+    } catch {
+      startFreshWithUser(user);
+    }
+  }
+
+  function startFreshWithUser(user: AuthUser) {
+    setSession({
+      ...createInitialSession(),
+      acf2_id: user.acf2_id,
+      workday_context: {
+        name: user.name,
+        team: user.team,
+        manager: user.manager,
+        dept: user.dept,
+        employment_type: user.employment_type,
+      },
+    });
+    setMessages([createWelcomeMessage(user)]);
+    setConversationId(null);
+    setIsLoading(false);
+    _autoStartRoleCheck(user);
+  }
+
   function resetChat() {
     if (authUser) {
-      setSession({
-        ...createInitialSession(),
-        acf2_id: authUser.acf2_id,
-        workday_context: {
-          name: authUser.name,
-          team: authUser.team,
-          manager: authUser.manager,
-          dept: authUser.dept,
-          employment_type: authUser.employment_type,
-        },
-      });
-      setMessages([createWelcomeMessage(authUser)]);
-      _autoStartRoleCheck(authUser);
+      startFreshWithUser(authUser);
     } else {
       setSession(createInitialSession());
       setMessages([createWelcomeMessage()]);
+      setConversationId(null);
+      setIsLoading(false);
     }
-    setConversationId(null);
-    setIsLoading(false);
   }
 
   async function _autoStartRoleCheck(user: AuthUser) {
@@ -174,17 +196,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function restoreLatestConversation(acf2Id: string) {
-    try {
-      const res = await fetch(`/api/conversations?acf2_id=${encodeURIComponent(acf2Id)}`);
-      const data = await res.json();
-      const latest = data.conversations?.[0];
-      if (latest?.id) {
-        await loadConversation(latest.id);
+    // Called from page.tsx login handler — delegate to restoreOrStartFresh
+    // which properly passes user context for auto-role-check
+    if (authUser) {
+      await restoreOrStartFresh(authUser);
+    } else {
+      // Fallback: look up from localStorage if authUser state not set yet
+      const raw = window.localStorage.getItem('hackherway.authUser');
+      if (raw) {
+        try {
+          const user = JSON.parse(raw) as AuthUser;
+          await restoreOrStartFresh(user);
+        } catch {
+          resetChat();
+        }
       } else {
         resetChat();
       }
-    } catch {
-      resetChat();
     }
   }
 
@@ -226,6 +254,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setIsLoading,
         memoryVersion,
         resetChat,
+        startFreshWithUser,
         deleteMemory,
         logout,
         loadConversation,

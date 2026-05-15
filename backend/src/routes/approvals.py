@@ -26,13 +26,16 @@ TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL", "")
 BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "http://localhost:8000")
 N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "")
 
-# Systems routed to Jira via n8n
+# Systems routed to Jira (project access, DB access, collaboration tools)
 JIRA_ROUTED_SYSTEMS = {
-    "Confluence", "SharePoint", "Miro",
+    "Jira", "GitHub", "Confluence",
     "Database", "Data Warehouse", "Data Platform",
-    "Postgres", "Oracle", "Redshift", "MongoDB",
-    "Jira",
+    "Notebook", "BI",
 }
+
+# Systems routed to ServiceNow only (security, infra, privileged access)
+# Everything NOT in JIRA_ROUTED_SYSTEMS goes to ServiceNow
+# Includes: CyberArk, AWS, Cloud, Terraform, VPN, PagerDuty, CI/CD, etc.
 
 
 def _query(sql: str):

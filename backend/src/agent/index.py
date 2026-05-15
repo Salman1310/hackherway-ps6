@@ -178,6 +178,10 @@ def handle_agent_message(
     if not session.acf2_id:
         return _handle_acf2_phase(content, history)
 
+    # Status check: if user asks about status after submission
+    if session.request_id and _is_status_query(content):
+        return _handle_status_check(session)
+
     # Phase 3: template selected — negotiate optional items and submit
     if session.selected_template:
         return _handle_submission_phase(content, session, history)
@@ -328,10 +332,13 @@ def _handle_role_confirmation(content: str, session: SessionState) -> dict:
         log_agent(f"Found existing role: {role_title}")
         return {
             "reply": (
-                f"Welcome back, {name.split()[0]}! I can see your role is "
-                f"{role_title} in {workday.team if workday else 'your team'}. "
-                f"Would you like me to load the access template for this role? "
-                f"If your role has changed, just tell me your new role."
+                f"Welcome back, {name.split()[0]}! I have your details on file:\n\n"
+                f"ACF2 ID: {acf2_id}\n"
+                f"Team: {workday.team if workday else 'N/A'}\n"
+                f"Manager: {workday.manager if workday else 'N/A'}\n\n"
+                f"Can you please confirm your role is {role_title}? "
+                f"If yes, I'll load your access template right away. "
+                f"If not, just tell me your actual role."
             ),
             "session_update": {
                 "acf2_id": acf2_id,
@@ -366,63 +373,123 @@ def _handle_role_confirmation(content: str, session: SessionState) -> dict:
         }
 
 
-def _load_template_directly(
-    designation_id: str, employee_context: dict, session: SessionState
-) -> dict:
-    """Load template directly from a known designation_id without Bedrock."""
-    log_agent(f"Loading template directly for designation: {designation_id}")
+def _is_status_query(content: str) -> bool:
+    """Check if user is asking about approval status."""
+    lowered = content.strip().lower()
+    status_keywords = {"status", "update", "progress", "approved", "happening",
+                       "pending", "where", "how is", "any update", "check status",
+                       "what's happening", "whats happening"}
+    return any(kw in lowered for kw in status_keywords)
 
-    # Fetch designation
-    d_result = _mcp_query_db(
-        f"SELECT * FROM designations WHERE id = {_sql_literal(designation_id)}"
-    )
-    try:
-        d_rows = json.loads(d_result)
-    except Exception:
-        d_rows = []
 
-    if not isinstance(d_rows, list) or not d_rows:
-        return {"reply": "I couldn't find that role template. Please tell me your role and I'll look it up."}
+STATUS_SYSTEM_PROMPT = """\
+You are an AI access request assistant for Sun Life Financial.
+The employee has already submitted an access request and is asking about its status.
 
-    designation = d_rows[0]
+## Your goal
+Query the database to check the status of each approval item and report clearly.
 
-    # Fetch access items
-    a_result = _mcp_query_db(
-        f"SELECT * FROM role_access_items WHERE designation_id = {_sql_literal(designation_id)} "
-        f"ORDER BY mandatory DESC, sort_order ASC"
-    )
-    try:
-        access_rows = json.loads(a_result)
-    except Exception:
-        access_rows = []
+## Steps
+1. Query approval_events for this request:
+   SELECT ae.access_item, ae.status, ae.approver, ae.resolved_at
+   FROM approval_events ae
+   WHERE ae.access_request_id = '<request_id>'
+   ORDER BY ae.submitted_at ASC
 
-    if not isinstance(access_rows, list) or not access_rows:
-        return {"reply": "I found your role but no access items are configured for it. Please contact your admin."}
+2. For each access_item, get the display name:
+   SELECT display_name FROM role_access_items WHERE access_item = '<item_id>' LIMIT 1
 
-    selected_template = _build_selected_template(designation, access_rows, "Loaded from existing role")
-    resolved_role = _build_resolved_role(selected_template, employee_context)
-    final_bundle = selected_template["mandatory_access"]
-    agent_trace = _build_agent_trace([designation], access_rows, selected_template, employee_context)
+3. Report back grouped by status (approved, pending, rejected).
 
-    role_title = designation.get("title", designation_id)
-    mandatory_count = len(selected_template["mandatory_access"])
-    optional_count = len(selected_template["optional_access"])
+## CRITICAL: How to determine status
+The ONLY source of truth for item status is the approval_events table.
+- If approval_events.status = 'approved' → the item IS approved. Period.
+- If approval_events.status = 'pending' → the item is still pending.
+- If approval_events.status = 'rejected' → the item was rejected.
+Do NOT use jira_tickets.status to determine approval status. The jira_tickets table
+is only for tracking which Jira ticket was created — it may be stale.
 
-    log_agent(f"Template loaded: {role_title} ({mandatory_count}M + {optional_count}O items)")
+## Rules
+- Plain text only. No Markdown, bold, asterisks, or code formatting.
+- Never reveal raw SQL, table names, or IDs to the user.
+- Be concise — list items by status group, mention approver name if available.
+- Do NOT query jira_tickets table. It is not needed for status reporting.
+"""
 
-    return {
-        "reply": (
-            f"Your {role_title} access template is loaded in the panel on the right. "
-            f"It includes {mandatory_count} mandatory and {optional_count} optional items. "
-            f"Review the optional items, toggle any you need, and say \"submit\" when ready."
-        ),
-        "session_update": {
-            "resolved_role": resolved_role,
-            "selected_template": selected_template,
-            "final_bundle": final_bundle,
-            "agent_trace": agent_trace,
-        },
-    }
+
+def _handle_status_check(session: SessionState) -> dict:
+    """Route status check through Bedrock so LLM generates all queries."""
+    log_agent(f"Status check for request {session.request_id}")
+
+    request_id = session.request_id or ""
+    acf2_id = session.acf2_id or ""
+    workday = session.workday_context
+    name = workday.name if workday else acf2_id
+
+    system_prompt = STATUS_SYSTEM_PROMPT.replace("<request_id>", request_id)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "text": (
+                        f"Employee {name} ({acf2_id}) is asking about the status of "
+                        f"their access request (ID: {request_id}). "
+                        f"Please check all approval events and Jira tickets for this request "
+                        f"and report back."
+                    )
+                }
+            ],
+        }
+    ]
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        log_bedrock(f"Status converse call #{iteration + 1}")
+
+        try:
+            response = converse_with_tools(
+                system_prompt, messages, TOOL_SPECS, max_tokens=1024
+            )
+        except Exception as exc:
+            log_error(f"Bedrock status call failed: {exc}")
+            return {"reply": FALLBACK_REPLY}
+
+        stop_reason = response.get("stopReason", "")
+        output_msg = response.get("output", {}).get("message", {})
+        content_blocks = output_msg.get("content", [])
+
+        if stop_reason == "end_turn":
+            reply_text = ""
+            for block in content_blocks:
+                if "text" in block:
+                    reply_text = block["text"]
+                    break
+            return {"reply": _clean_reply(reply_text or FALLBACK_REPLY)}
+
+        if stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": content_blocks})
+            tool_results = []
+            for block in content_blocks:
+                if "toolUse" not in block:
+                    continue
+                tool_name = block["toolUse"]["name"]
+                tool_input = block["toolUse"]["input"]
+                tool_use_id = block["toolUse"]["toolUseId"]
+                log_bedrock(f"status tool_call -> {tool_name}")
+                result_text = _execute_tool(tool_name, tool_input)
+                tool_results.append({
+                    "toolResult": {
+                        "toolUseId": tool_use_id,
+                        "content": [{"text": result_text}],
+                    }
+                })
+            messages.append({"role": "user", "content": tool_results})
+            continue
+
+        break
+
+    return {"reply": FALLBACK_REPLY}
 
 
 def _handle_role_phase(
@@ -441,15 +508,17 @@ def _handle_role_phase(
     }
 
     # If user confirms existing role ("yes", "correct", "that's right", etc.)
+    # Route through Bedrock so LLM generates all queries (more agentic)
     lowered = content.strip().lower()
     affirmatives = {"yes", "yeah", "yep", "correct", "that's right", "thats right",
                     "sure", "confirm", "confirmed", "ok", "okay", "go ahead", "proceed",
                     "yes please", "load it", "yes load"}
     if lowered in affirmatives or (len(lowered) < 20 and any(a in lowered for a in affirmatives)):
-        # Load template from existing user_designations
+        # Look up designation title to pass as explicit role request to Bedrock
         existing = _mcp_query_db(
-            f"SELECT designation_id FROM user_designations "
-            f"WHERE acf2_id = {_sql_literal(session.acf2_id or '')}"
+            f"SELECT ud.designation_id, d.title FROM user_designations ud "
+            f"JOIN designations d ON d.id = ud.designation_id "
+            f"WHERE ud.acf2_id = {_sql_literal(session.acf2_id or '')}"
         )
         try:
             existing_rows = json.loads(existing)
@@ -457,8 +526,10 @@ def _handle_role_phase(
             existing_rows = []
 
         if isinstance(existing_rows, list) and existing_rows:
-            designation_id = existing_rows[0]["designation_id"]
-            return _load_template_directly(designation_id, employee_context, session)
+            role_title = existing_rows[0].get("title", "")
+            # Feed role title as content — Bedrock will generate the queries
+            content = f"My role is {role_title}. Please load the access template for this role."
+            log_agent(f"User confirmed role, routing to Bedrock with: {content}")
 
     # Do NOT pass chat history here — previous role assignments in history
     # cause Bedrock to match the old role instead of the current request.
@@ -509,36 +580,7 @@ def _handle_role_phase(
                 f"role_access_rows={len(role_access_rows)}"
             )
 
-            # Fallback: Bedrock may have used user_designations and skipped querying
-            # the designations table directly. If we have role_access_items rows but no
-            # designation metadata, look it up in Python.
-            if role_access_rows and not candidate_designations:
-                designation_id = role_access_rows[0].get("designation_id", "")
-                if designation_id:
-                    log_agent(
-                        f"Fallback: fetching designation '{designation_id}' directly"
-                    )
-                    d_sql = (
-                        f"SELECT * FROM designations WHERE id = {_sql_literal(designation_id)}"
-                    )
-                    d_result = _mcp_query_db(d_sql)
-                    try:
-                        d_rows = json.loads(d_result)
-                        if isinstance(d_rows, list):
-                            for row in d_rows:
-                                if isinstance(row, dict) and "id" in row and "title" in row:
-                                    candidate_designations.append(row)
-                    except Exception:
-                        pass
-
             result: dict = {"reply": _clean_reply(reply_text or FALLBACK_REPLY)}
-            if not (candidate_designations and role_access_rows):
-                fallback_match = _load_role_template_fallback(
-                    content, result["reply"], employee_context
-                )
-                if fallback_match:
-                    candidate_designations = [fallback_match["designation"]]
-                    role_access_rows = fallback_match["access_rows"]
 
             if candidate_designations and role_access_rows:
                 # Use the designation that matches what Bedrock actually queried
@@ -615,107 +657,6 @@ def _handle_role_phase(
         break
 
     return {"reply": FALLBACK_REPLY}
-
-
-def _load_role_template_fallback(
-    role_text: str, reply_text: str, employee_context: dict
-) -> Optional[dict]:
-    """Load template rows when Bedrock says it matched but skipped tool-use rows."""
-    lookup_text = f"{role_text} {reply_text}".lower()
-    if "match" not in lookup_text and "template" not in lookup_text:
-        return None
-
-    designations_result = _mcp_query_db(
-        "SELECT * FROM designations ORDER BY title ASC"
-    )
-    try:
-        designations = json.loads(designations_result)
-    except Exception:
-        return None
-
-    if not isinstance(designations, list):
-        return None
-
-    best_designation = None
-    best_score = 0
-    for designation in designations:
-        if not isinstance(designation, dict):
-            continue
-        score = _score_designation_match(
-            designation, lookup_text, employee_context
-        )
-        if score > best_score:
-            best_score = score
-            best_designation = designation
-
-    if not best_designation or best_score < 2:
-        log_agent("Fallback role template load skipped: no confident match")
-        return None
-
-    designation_id = best_designation["id"]
-    access_result = _mcp_query_db(
-        "SELECT * FROM role_access_items "
-        f"WHERE designation_id = {_sql_literal(designation_id)} "
-        "ORDER BY mandatory DESC, sort_order ASC"
-    )
-    try:
-        access_rows = json.loads(access_result)
-    except Exception:
-        return None
-
-    if not isinstance(access_rows, list) or not access_rows:
-        return None
-
-    log_agent(
-        f"Fallback role template load: {designation_id} ({len(access_rows)} rows)"
-    )
-    return {"designation": best_designation, "access_rows": access_rows}
-
-
-def _score_designation_match(
-    designation: dict, lookup_text: str, employee_context: dict
-) -> int:
-    title = str(designation.get("title", "")).lower()
-    designation_id = str(designation.get("id", "")).lower().replace("_", " ")
-    description = str(designation.get("description", "")).lower()
-    team_hint = str(designation.get("team_hint", "")).lower()
-    dept_hint = str(designation.get("dept_hint", "")).lower()
-    searchable = " ".join([title, designation_id, description, team_hint, dept_hint])
-
-    score = 0
-    if title and title in lookup_text:
-        score += 6
-    if designation_id and designation_id in lookup_text:
-        score += 5
-
-    role_tokens = {
-        token
-        for token in re.findall(r"[a-z0-9]+", lookup_text)
-        if len(token) >= 4
-        and token
-        not in {
-            "access",
-            "items",
-            "loaded",
-            "panel",
-            "right",
-            "role",
-            "template",
-            "matched",
-            "review",
-            "submit",
-        }
-    }
-    score += sum(1 for token in role_tokens if token in searchable)
-
-    employee_team = str(employee_context.get("team") or "").lower()
-    employee_dept = str(employee_context.get("dept") or "").lower()
-    if score > 0 and employee_team and employee_team in team_hint:
-        score += 1
-    if score > 0 and employee_dept and employee_dept in dept_hint:
-        score += 1
-
-    return score
 
 
 def _build_submission_prompt(

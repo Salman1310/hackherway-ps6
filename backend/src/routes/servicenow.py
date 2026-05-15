@@ -14,11 +14,29 @@ from ..lib.sqlite import get_db
 
 router = APIRouter()
 
+# Items routed to Jira — should NOT appear on ServiceNow portal
+JIRA_ROUTED_SYSTEMS = {
+    "Jira", "GitHub", "Confluence",
+    "Database", "Data Warehouse", "Data Platform",
+    "Notebook", "BI",
+}
+
 
 def _safe_query(sql: str, params: tuple = ()):
     db = get_db()
     rows = db.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def _is_snow_item(access_item: str) -> bool:
+    """Check if an access item belongs to ServiceNow (not Jira-routed)."""
+    rows = _safe_query(
+        "SELECT system FROM role_access_items WHERE access_item = ? LIMIT 1",
+        (access_item,),
+    )
+    if not rows:
+        return True
+    return rows[0].get("system", "") not in JIRA_ROUTED_SYSTEMS
 
 
 _STATUS_MAP = {
@@ -151,6 +169,8 @@ def get_pending_ritms():
 
         catalog_items = []
         for item_id in bundle_ids:
+            if not _is_snow_item(item_id):
+                continue
             item_rows = _safe_query(
                 "SELECT display_name, system, servicenow_catalog_item_id "
                 "FROM role_access_items WHERE access_item = ? LIMIT 1",
@@ -167,7 +187,7 @@ def get_pending_ritms():
             else:
                 catalog_items.append({"id": item_id, "display_name": item_id, "system": "", "catalog_id": ""})
 
-        # Build per-item approval events with status
+        # Build per-item approval events — only ServiceNow-routed items
         all_events = _safe_query(
             "SELECT * FROM approval_events WHERE access_request_id = ? "
             "ORDER BY submitted_at ASC",
@@ -175,6 +195,8 @@ def get_pending_ritms():
         )
         approval_items = []
         for ev in all_events:
+            if not _is_snow_item(ev["access_item"]):
+                continue
             item_rows = _safe_query(
                 "SELECT display_name FROM role_access_items "
                 "WHERE access_item = ? LIMIT 1",
@@ -188,6 +210,9 @@ def get_pending_ritms():
                 "approver": ev.get("approver", ""),
                 "status": ev.get("status", "pending"),
             })
+
+        if not approval_items:
+            continue
 
         ritms.append({
             "ritm_number": _ritm_number(req["id"]),
@@ -203,7 +228,7 @@ def get_pending_ritms():
             "catalog_items": catalog_items,
             "approval_items": approval_items,
             "item_count": len(catalog_items),
-            "pending_count": len(pending_events),
+            "pending_count": len(approval_items),
         })
 
     return {"ritms": ritms}
