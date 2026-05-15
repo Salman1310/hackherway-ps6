@@ -23,6 +23,15 @@ router = APIRouter()
 
 TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL", "")
 BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "http://localhost:8000")
+N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "")
+
+# Systems routed to Jira via n8n
+JIRA_ROUTED_SYSTEMS = {
+    "Confluence", "SharePoint", "Miro",
+    "Database", "Data Warehouse", "Data Platform",
+    "Postgres", "Oracle", "Redshift", "MongoDB",
+    "Jira",
+}
 
 
 def _query(sql: str):
@@ -140,6 +149,17 @@ def submit_request(body: SubmitRequest):
             team=team,
             manager=manager,
             items=events_created,
+        )
+
+    # Fire n8n webhook for Jira-routed items (fire-and-forget)
+    if N8N_WEBHOOK_URL:
+        _fire_n8n_webhook(
+            request_id=request_id,
+            acf2_id=body.acf2_id,
+            requester_name=requester_name,
+            role_title=role_title,
+            team=team,
+            final_bundle=body.final_bundle,
         )
 
     log("AGENT", f"Request submitted: {request_id} ({len(events_created)} items, teams={teams_sent})")
@@ -313,6 +333,26 @@ def approval_action(body: ApprovalAction):
         )
         log("AGENT", f"Request {request_id} fully resolved: {new_status}")
 
+        # Notify Teams that the request is fully resolved
+        if TEAMS_WEBHOOK_URL:
+            req_rows = _query(f"SELECT * FROM access_requests WHERE id = '{_esc(request_id)}'")
+            if req_rows:
+                req_info = req_rows[0]
+                user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req_info['acf2_id'])}'")
+                requester_name = user_rows[0]["name"] if user_rows else req_info["acf2_id"]
+                desig_rows = _query(
+                    f"SELECT title FROM designations WHERE id = '{_esc(req_info.get('designation_id', ''))}'"
+                )
+                role_title = desig_rows[0]["title"] if desig_rows else req_info.get("designation_id", "")
+                _send_teams_resolution(
+                    requester_name=requester_name,
+                    acf2_id=req_info["acf2_id"],
+                    role_title=role_title,
+                    approver_name=body.approver_name or event.get("approver", "Manager"),
+                    all_approved=all_approved,
+                    item_count=len(all_events),
+                )
+
     # Audit log
     audit_id = str(uuid.uuid4())
     event_acf2 = _esc(event["acf2_id"])
@@ -332,6 +372,59 @@ def approval_action(body: ApprovalAction):
             "partially_rejected" if all_resolved else "pending_approval"
         ),
     }
+
+
+# ── n8n Webhook ──────────────────────────────────────────────────────────────
+
+def _fire_n8n_webhook(
+    request_id: str,
+    acf2_id: str,
+    requester_name: str,
+    role_title: str,
+    team: str,
+    final_bundle: list[dict],
+) -> None:
+    """Fire-and-forget POST to n8n for Jira-routed access items."""
+    # Enrich each item with its system tag from the DB
+    enriched_items = []
+    for item in final_bundle:
+        item_id = item.get("id", "")
+        item_rows = _query(
+            f"SELECT display_name, system, servicenow_catalog_item_id "
+            f"FROM role_access_items WHERE access_item = '{_esc(item_id)}' LIMIT 1"
+        )
+        system = item_rows[0].get("system", "") if item_rows else ""
+        display_name = item_rows[0].get("display_name", item_id) if item_rows else item_id
+        catalog_id = item_rows[0].get("servicenow_catalog_item_id", "") if item_rows else ""
+        enriched_items.append({
+            "id": item_id,
+            "display_name": display_name,
+            "system": system,
+            "catalog_id": catalog_id,
+            "jira_routed": system in JIRA_ROUTED_SYSTEMS,
+        })
+
+    payload = {
+        "request_id": request_id,
+        "acf2_id": acf2_id,
+        "requester_name": requester_name,
+        "role_title": role_title,
+        "team": team,
+        "items": enriched_items,
+        "jira_items": [i for i in enriched_items if i["jira_routed"]],
+    }
+
+    try:
+        http_requests.post(
+            N8N_WEBHOOK_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=5,
+            verify=False,
+        )
+        log("AGENT", f"n8n webhook fired: {len(payload['jira_items'])} Jira-routed items")
+    except Exception as exc:
+        log("AGENT", f"n8n webhook failed (non-critical): {exc}")
 
 
 # ── Teams Webhook ────────────────────────────────────────────────────────────
@@ -429,3 +522,67 @@ def _send_teams_notification(
     except Exception as exc:
         log("TEAMS", f"Webhook failed: {exc}")
         return False
+
+
+def _send_teams_resolution(
+    requester_name: str,
+    acf2_id: str,
+    role_title: str,
+    approver_name: str,
+    all_approved: bool,
+    item_count: int,
+) -> None:
+    """Send a Teams card when a request is fully approved or rejected."""
+    status_text = "✓ Access Request Approved" if all_approved else "✗ Access Request Partially Rejected"
+    status_color = "Good" if all_approved else "Warning"
+    outcome = f"All {item_count} access items approved" if all_approved else f"Some items were rejected"
+
+    card = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "size": "Large",
+                            "weight": "Bolder",
+                            "text": status_text,
+                            "color": status_color,
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": [
+                                {"title": "Requester", "value": f"{requester_name} ({acf2_id})"},
+                                {"title": "Role", "value": role_title},
+                                {"title": "Outcome", "value": outcome},
+                                {"title": "Approved by", "value": approver_name},
+                            ],
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "Access will be provisioned shortly." if all_approved else "Please contact IT for rejected items.",
+                            "wrap": True,
+                            "isSubtle": True,
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+
+    try:
+        resp = http_requests.post(
+            TEAMS_WEBHOOK_URL,
+            json=card,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+            verify=False,
+        )
+        log("TEAMS", f"Resolution card sent: status={resp.status_code}")
+    except Exception as exc:
+        log("TEAMS", f"Resolution card failed: {exc}")

@@ -372,6 +372,68 @@ function ApproverRitmRow({
   );
 }
 
+// ── Completed RITM row (read-only, shows resolved items) ─────────────────────
+
+function CompletedRitmRow({ ritm }: { ritm: Ritm }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = ritm.approval_items ?? [];
+  const allApproved = items.every((i) => i.status === 'approved');
+
+  return (
+    <div className="border border-gray-300 bg-white mb-2">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-left px-4 py-3 grid grid-cols-[1fr_auto] gap-4 items-start hover:bg-gray-50 transition-colors"
+      >
+        <div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-bold text-[#293e40] font-mono">{ritm.ritm_number}</span>
+            <span className={['text-[10px] font-semibold px-2 py-0.5 rounded-sm uppercase tracking-wide', allApproved ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'].join(' ')}>
+              {allApproved ? 'Closed Complete' : 'Closed Incomplete'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-700 mt-1">{ritm.short_description}</p>
+          <div className="flex flex-wrap gap-4 mt-1.5 text-[10px] text-gray-500">
+            <span><span className="text-gray-400">Role: </span>{ritm.role_title}</span>
+            <span><span className="text-gray-400">Items: </span>{ritm.item_count}</span>
+            <span><span className="text-gray-400">Opened: </span>{formatSnDate(ritm.opened_at)}</span>
+            <span><span className="text-gray-400">Requested for: </span>{ritm.requested_for}</span>
+          </div>
+        </div>
+        <span className="text-gray-400 text-xs mt-1">{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-200 px-4 py-3">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Resolution Details</p>
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="text-left px-3 py-1.5 font-semibold text-gray-600 border border-gray-200">Item</th>
+                <th className="text-left px-3 py-1.5 font-semibold text-gray-600 border border-gray-200">Approved by</th>
+                <th className="text-left px-3 py-1.5 font-semibold text-gray-600 border border-gray-200">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.event_id} className="even:bg-gray-50">
+                  <td className="px-3 py-1.5 border border-gray-200 text-gray-800">{item.display_name}</td>
+                  <td className="px-3 py-1.5 border border-gray-200 text-gray-600">{item.approver}</td>
+                  <td className="px-3 py-1.5 border border-gray-200">
+                    <span className={['text-[10px] font-semibold px-1.5 py-0.5 rounded-sm uppercase', item.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'].join(' ')}>
+                      {item.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main portal (inner — uses searchParams) ───────────────────────────────────
 
 function ServiceNowContent() {
@@ -379,7 +441,10 @@ function ServiceNowContent() {
   const highlightId = searchParams.get('highlight');
 
   const [user, setUser] = useState<SnUser | null>(null);
-  const [ritms, setRitms] = useState<Ritm[]>([]);
+  const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending');
+  const [pendingRitms, setPendingRitms] = useState<Ritm[]>([]);
+  const [completedRitms, setCompletedRitms] = useState<Ritm[]>([]);
+  const [employeeRitms, setEmployeeRitms] = useState<Ritm[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -399,18 +464,28 @@ function ServiceNowContent() {
 
   const fetchRitms = (currentUser: SnUser) => {
     setLoading(true);
-    const url = currentUser.role === 'approver'
-      ? '/api/servicenow/pending-ritms'
-      : `/api/servicenow/ritms?acf2_id=${encodeURIComponent(currentUser.acf2_id)}`;
-
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => {
-        setRitms(data.ritms ?? []);
-        setError(null);
-      })
-      .catch(() => setError('Failed to load RITM records.'))
-      .finally(() => setLoading(false));
+    if (currentUser.role === 'approver') {
+      Promise.all([
+        fetch('/api/servicenow/pending-ritms').then((r) => r.json()),
+        fetch('/api/servicenow/resolved-ritms').then((r) => r.json()),
+      ])
+        .then(([pending, resolved]) => {
+          setPendingRitms(pending.ritms ?? []);
+          setCompletedRitms(resolved.ritms ?? []);
+          setError(null);
+        })
+        .catch(() => setError('Failed to load RITM records.'))
+        .finally(() => setLoading(false));
+    } else {
+      fetch(`/api/servicenow/ritms?acf2_id=${encodeURIComponent(currentUser.acf2_id)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          setEmployeeRitms(data.ritms ?? []);
+          setError(null);
+        })
+        .catch(() => setError('Failed to load RITM records.'))
+        .finally(() => setLoading(false));
+    }
   };
 
   useEffect(() => {
@@ -426,15 +501,24 @@ function ServiceNowContent() {
   function handleLogout() {
     window.sessionStorage.removeItem('sn.authUser');
     setUser(null);
-    setRitms([]);
+    setPendingRitms([]);
+    setCompletedRitms([]);
+    setEmployeeRitms([]);
   }
 
   if (!user) return <SnLogin onLogin={handleLogin} />;
 
   const isApprover = user.role === 'approver';
-  const pageTitle = isApprover ? 'Pending Approval Requests' : 'My Request Items';
+  const displayRitms = isApprover
+    ? (activeTab === 'pending' ? pendingRitms : completedRitms)
+    : employeeRitms;
+  const pageTitle = isApprover
+    ? (activeTab === 'pending' ? 'Pending Approval Requests' : 'Completed Requests')
+    : 'My Request Items';
   const pageSubtitle = isApprover
-    ? `${ritms.length} request${ritms.length !== 1 ? 's' : ''} awaiting your approval`
+    ? (activeTab === 'pending'
+        ? `${pendingRitms.length} request${pendingRitms.length !== 1 ? 's' : ''} awaiting your approval`
+        : `${completedRitms.length} resolved request${completedRitms.length !== 1 ? 's' : ''}`)
     : `Access requests submitted on behalf of ${user.name}`;
 
   return (
@@ -475,11 +559,39 @@ function ServiceNowContent() {
       <div className="flex-1 p-6">
         <div className="max-w-4xl mx-auto">
           <div className="text-[10px] text-gray-500 mb-3">
-            {isApprover ? 'Approvals › Pending Requests' : 'Self-Service › My Requests › Request Items'}
+            {isApprover ? `Approvals › ${activeTab === 'pending' ? 'Pending' : 'Completed'}` : 'Self-Service › My Requests › Request Items'}
           </div>
 
+          {/* Approver tabs */}
+          {isApprover && (
+            <div className="flex gap-0 mb-0 border-b border-gray-300">
+              <button
+                onClick={() => setActiveTab('pending')}
+                className={['px-5 py-2 text-xs font-semibold border border-b-0 transition-colors', activeTab === 'pending' ? 'bg-white border-gray-300 text-[#293e40]' : 'bg-gray-100 border-transparent text-gray-500 hover:text-gray-700'].join(' ')}
+              >
+                Pending
+                {pendingRitms.length > 0 && (
+                  <span className="ml-1.5 bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                    {pendingRitms.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('completed')}
+                className={['px-5 py-2 text-xs font-semibold border border-b-0 transition-colors', activeTab === 'completed' ? 'bg-white border-gray-300 text-[#293e40]' : 'bg-gray-100 border-transparent text-gray-500 hover:text-gray-700'].join(' ')}
+              >
+                Completed
+                {completedRitms.length > 0 && (
+                  <span className="ml-1.5 bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                    {completedRitms.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Page header */}
-          <div className="bg-white border border-gray-300 px-5 py-3 mb-4 flex items-center justify-between">
+          <div className="bg-white border border-gray-300 border-t-0 px-5 py-3 mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-base font-bold text-gray-800">{pageTitle}</h1>
               <p className="text-xs text-gray-500 mt-0.5">{pageSubtitle}</p>
@@ -494,13 +606,13 @@ function ServiceNowContent() {
                 </button>
               )}
               <span className="text-xs text-gray-500 bg-gray-100 border border-gray-200 px-3 py-1">
-                {ritms.length} record{ritms.length !== 1 ? 's' : ''}
+                {displayRitms.length} record{displayRitms.length !== 1 ? 's' : ''}
               </span>
             </div>
           </div>
 
           {/* Column headers */}
-          {ritms.length > 0 && (
+          {displayRitms.length > 0 && (
             <div className="grid grid-cols-[150px_1fr_130px_120px] gap-0 bg-gray-200 border border-gray-300 border-b-0 px-4 py-2 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
               <span>RITM</span>
               <span>Short Description</span>
@@ -514,19 +626,23 @@ function ServiceNowContent() {
             <div className="bg-white border border-gray-300 p-8 text-center text-xs text-gray-400">Loading...</div>
           ) : error ? (
             <div className="bg-white border border-gray-300 p-8 text-center text-xs text-red-600">{error}</div>
-          ) : ritms.length === 0 ? (
+          ) : displayRitms.length === 0 ? (
             <div className="bg-white border border-gray-300 p-10 text-center">
               <p className="text-sm text-gray-500 font-medium">
-                {isApprover ? 'No pending requests' : 'No records found'}
+                {isApprover
+                  ? (activeTab === 'pending' ? 'No pending requests' : 'No completed requests yet')
+                  : 'No records found'}
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                {isApprover ? 'All access requests have been resolved.' : 'Submitted access requests will appear here.'}
+                {isApprover
+                  ? (activeTab === 'pending' ? 'All access requests have been resolved.' : 'Approved requests will appear here.')
+                  : 'Submitted access requests will appear here.'}
               </p>
             </div>
           ) : (
             <div>
-              {isApprover
-                ? ritms.map((ritm) => (
+              {isApprover && activeTab === 'pending'
+                ? displayRitms.map((ritm) => (
                     <ApproverRitmRow
                       key={ritm.ritm_number}
                       ritm={ritm}
@@ -534,7 +650,11 @@ function ServiceNowContent() {
                       onActionDone={() => fetchRitms(user)}
                     />
                   ))
-                : ritms.map((ritm) => (
+                : isApprover && activeTab === 'completed'
+                ? displayRitms.map((ritm) => (
+                    <CompletedRitmRow key={ritm.ritm_number} ritm={ritm} />
+                  ))
+                : displayRitms.map((ritm) => (
                     <EmployeeRitmRow key={ritm.ritm_number} ritm={ritm} />
                   ))}
             </div>

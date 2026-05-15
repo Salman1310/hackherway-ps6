@@ -205,3 +205,63 @@ def get_pending_ritms():
         })
 
     return {"ritms": ritms}
+
+
+@router.get("/resolved-ritms")
+def get_resolved_ritms():
+    """Return all fully resolved requests — for the approver completed tab."""
+    requests = _query(
+        "SELECT * FROM access_requests "
+        "WHERE status IN ('approved', 'fully_approved', 'partially_rejected') "
+        "ORDER BY created_at DESC"
+    )
+
+    ritms = []
+    for req in requests:
+        user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req['acf2_id'])}'")
+        requester_name = user_rows[0]["name"] if user_rows else req["acf2_id"]
+
+        designation_rows = _query(
+            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        )
+        role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
+
+        all_events = _query(
+            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
+            f"ORDER BY submitted_at ASC"
+        )
+
+        approval_items = []
+        for ev in all_events:
+            item_rows = _query(
+                f"SELECT display_name FROM role_access_items "
+                f"WHERE access_item = '{_esc(ev['access_item'])}' LIMIT 1"
+            )
+            display_name = item_rows[0]["display_name"] if item_rows else ev["access_item"]
+            approval_items.append({
+                "event_id": ev["id"],
+                "access_item": ev["access_item"],
+                "display_name": display_name,
+                "approver": ev.get("approver", ""),
+                "status": ev.get("status", "pending"),
+                "resolved_at": ev.get("resolved_at"),
+            })
+
+        raw_status = req.get("status", "approved")
+        sn_state = _STATUS_MAP.get(raw_status, "Closed Complete")
+
+        ritms.append({
+            "ritm_number": _ritm_number(req["id"]),
+            "request_id": req["id"],
+            "short_description": f"Access Request - {requester_name} ({req['acf2_id']})",
+            "acf2_id": req["acf2_id"],
+            "role_title": role_title,
+            "requested_for": requester_name,
+            "state": sn_state,
+            "state_color": _STATE_COLOR.get(sn_state, "green"),
+            "opened_at": req.get("created_at"),
+            "approval_items": approval_items,
+            "item_count": len(approval_items),
+        })
+
+    return {"ritms": ritms}
