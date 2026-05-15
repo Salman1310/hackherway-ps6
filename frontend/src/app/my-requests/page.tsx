@@ -9,7 +9,6 @@ import {
   ChevronUp,
   ArrowLeft,
   ClipboardList,
-  ExternalLink,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -113,16 +112,6 @@ function RequestCard({ request }: { request: AccessRequest }) {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-          {hasPending && (
-            <Link
-              href={`/approvals?request_id=${request.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="hidden sm:flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
-            >
-              Review
-              <ExternalLink className="w-3 h-3" />
-            </Link>
-          )}
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400" />
           ) : (
@@ -203,13 +192,9 @@ function RequestCard({ request }: { request: AccessRequest }) {
 
           {hasPending && (
             <div className="pt-1">
-              <Link
-                href={`/approvals?request_id=${request.id}`}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800"
-              >
-                View in Approval Portal
-                <ExternalLink className="w-3 h-3" />
-              </Link>
+              <p className="text-[11px] text-amber-600 font-medium">
+                Pending approval — your manager has been notified via Teams.
+              </p>
             </div>
           )}
         </div>

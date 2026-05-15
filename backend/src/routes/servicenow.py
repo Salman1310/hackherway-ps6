@@ -116,3 +116,92 @@ def get_ritms(acf2_id: str):
         })
 
     return {"ritms": ritms, "requester_name": requester_name}
+
+
+@router.get("/pending-ritms")
+def get_pending_ritms():
+    """Return all access requests with pending approvals — for the approver view."""
+    requests = _query(
+        "SELECT * FROM access_requests "
+        "WHERE status NOT IN ('approved', 'fully_approved') "
+        "ORDER BY created_at DESC"
+    )
+
+    ritms = []
+    for req in requests:
+        # Only include if there are actual pending approval events
+        pending_events = _query(
+            f"SELECT * FROM approval_events "
+            f"WHERE access_request_id = '{_esc(req['id'])}' AND status = 'pending'"
+        )
+        if not pending_events:
+            continue
+
+        user_rows = _query(f"SELECT name FROM users WHERE acf2_id = '{_esc(req['acf2_id'])}'")
+        requester_name = user_rows[0]["name"] if user_rows else req["acf2_id"]
+
+        designation_rows = _query(
+            f"SELECT title FROM designations WHERE id = '{_esc(req.get('designation_id', ''))}'"
+        )
+        role_title = designation_rows[0]["title"] if designation_rows else req.get("designation_id", "Unknown Role")
+
+        try:
+            bundle_ids = json.loads(req.get("final_bundle") or "[]")
+        except Exception:
+            bundle_ids = []
+
+        catalog_items = []
+        for item_id in bundle_ids:
+            item_rows = _query(
+                f"SELECT display_name, system, servicenow_catalog_item_id "
+                f"FROM role_access_items WHERE access_item = '{_esc(item_id)}' LIMIT 1"
+            )
+            if item_rows:
+                row = item_rows[0]
+                catalog_items.append({
+                    "id": item_id,
+                    "display_name": row.get("display_name", item_id),
+                    "system": row.get("system", ""),
+                    "catalog_id": row.get("servicenow_catalog_item_id", ""),
+                })
+            else:
+                catalog_items.append({"id": item_id, "display_name": item_id, "system": "", "catalog_id": ""})
+
+        # Build per-item approval events with status
+        all_events = _query(
+            f"SELECT * FROM approval_events WHERE access_request_id = '{_esc(req['id'])}' "
+            f"ORDER BY submitted_at ASC"
+        )
+        approval_items = []
+        for ev in all_events:
+            item_rows = _query(
+                f"SELECT display_name FROM role_access_items "
+                f"WHERE access_item = '{_esc(ev['access_item'])}' LIMIT 1"
+            )
+            display_name = item_rows[0]["display_name"] if item_rows else ev["access_item"]
+            approval_items.append({
+                "event_id": ev["id"],
+                "access_item": ev["access_item"],
+                "display_name": display_name,
+                "approver": ev.get("approver", ""),
+                "status": ev.get("status", "pending"),
+            })
+
+        ritms.append({
+            "ritm_number": _ritm_number(req["id"]),
+            "request_id": req["id"],
+            "short_description": f"Access Request - {requester_name} ({req['acf2_id']})",
+            "acf2_id": req["acf2_id"],
+            "role_title": role_title,
+            "requested_for": requester_name,
+            "requested_by": "Access Assistant AI",
+            "state": "Awaiting Approval",
+            "state_color": "blue",
+            "opened_at": req.get("created_at"),
+            "catalog_items": catalog_items,
+            "approval_items": approval_items,
+            "item_count": len(catalog_items),
+            "pending_count": len(pending_events),
+        })
+
+    return {"ritms": ritms}

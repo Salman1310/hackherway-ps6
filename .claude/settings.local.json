@@ -7,7 +7,10 @@
       "Bash(curl -s http://localhost:8000/docs)",
       "Bash(git add *)",
       "Bash(python -m compileall src mcp_server)",
-      "Bash(python -m compileall src)"
+      "Bash(python -m compileall src)",
+      "Bash(del \"C:\\\\Users\\\\hay8\\\\Git\\\\Hackathon\\\\hackherway-ps6\\\\frontend\\\\src\\\\app\\\\approvals\\\\page.tsx\")",
+      "Bash(del \"C:\\\\Users\\\\hay8\\\\Git\\\\Hackathon\\\\hackherway-ps6\\\\frontend\\\\src\\\\app\\\\api\\\\approvals\\\\action\\\\route.ts\")",
+      "Bash(python -m compileall src mcp_server scripts)"
     ]
   }
 }

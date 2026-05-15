@@ -39,4 +39,7 @@ def login(body: LoginRequest) -> dict:
     )
     db.commit()
 
-    return {"user": dict(row)}
+    APPROVER_IDS = {"RAJ01", "DEEPA01"}
+    user = dict(row)
+    user["role"] = "approver" if acf2_id in APPROVER_IDS else "employee"
+    return {"user": user}

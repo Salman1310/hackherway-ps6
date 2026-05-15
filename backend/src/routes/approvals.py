@@ -355,7 +355,7 @@ def _send_teams_notification(
         for item in items
     )
 
-    review_url = f"{FRONTEND_PUBLIC_URL}/approvals?request_id={request_id}"
+    review_url = f"{FRONTEND_PUBLIC_URL}/servicenow?highlight={request_id}"
 
     card = {
         "type": "message",
@@ -371,7 +371,7 @@ def _send_teams_notification(
                             "type": "TextBlock",
                             "size": "Large",
                             "weight": "Bolder",
-                            "text": "Access Request - Approval Needed",
+                            "text": "Access Request — Approval Needed",
                             "style": "heading",
                         },
                         {
@@ -397,15 +397,16 @@ def _send_teams_notification(
                         },
                         {
                             "type": "TextBlock",
-                            "text": "Click the button below to review and approve or reject in the portal.",
+                            "text": "Open the ServiceNow portal to review and approve or reject this request.",
                             "wrap": True,
                             "spacing": "Medium",
+                            "color": "Accent",
                         },
                     ],
                     "actions": [
                         {
                             "type": "Action.OpenUrl",
-                            "title": "Review & Approve in Portal",
+                            "title": "Review in ServiceNow",
                             "url": review_url,
                             "style": "positive",
                         },

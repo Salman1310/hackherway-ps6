@@ -205,12 +205,14 @@ USERS = [
     ("ARUN01", "Arun Mehta", "Cloud Infrastructure", "Raj Kumar", "Technology", "full-time"),
     ("NEHA02", "Neha Kapoor", "Finance Analytics", "Deepa Menon", "Finance", "contract"),
     ("SARA03", "Sara Chen", "TBD", "TBD", "TBD", "full-time"),
+    ("RAJ01", "Raj Kumar", "Cloud Infrastructure", None, "Technology", "full-time"),
 ]
 
 USER_AUTH = [
     {"acf2_id": "ARUN01", "password": "arun123", "created_at": ts(2026, 5, 1), "last_login_at": None},
     {"acf2_id": "NEHA02", "password": "neha123", "created_at": ts(2026, 5, 1), "last_login_at": None},
     {"acf2_id": "SARA03", "password": "sara123", "created_at": ts(2026, 5, 1), "last_login_at": None},
+    {"acf2_id": "RAJ01",  "password": "raj123",  "created_at": ts(2026, 5, 1), "last_login_at": None},
 ]
 
 DESIGNATIONS = [
