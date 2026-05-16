@@ -17,6 +17,7 @@
 <br/>
 
 <p>
+  <img src="https://img.shields.io/badge/Built%20With-Claude%20Code-D97757?style=flat-square&logo=anthropic&logoColor=white" alt="Built with Claude Code"/>
   <img src="https://img.shields.io/badge/Claude%20Sonnet%204.6-AWS%20Bedrock-9333EA?style=flat-square&logo=anthropic&logoColor=white" alt="Claude"/>
   <img src="https://img.shields.io/badge/MCP-Model%20Context%20Protocol-D97757?style=flat-square" alt="MCP"/>
   <img src="https://img.shields.io/badge/Agentic-Tool%20Use%20Loop-9333EA?style=flat-square" alt="Agentic"/>
@@ -76,6 +77,12 @@ A single agentic interface that **thinks, decides, and acts** on the user's beha
 </td>
 </tr>
 </table>
+
+---
+
+## 🛠️ Built With Claude Code
+
+> This entire system — backend agent loop, MCP servers, FastAPI routes, the Next.js chat UI, the admin role-configuration panel, the mock enterprise stack, and even this documentation — was **built using Claude Code, Anthropic's agentic coding tool.** Every phase of the project (Phase 0A foundation through Phase 3 submission) was driven by Claude Code agents acting on the codebase: scaffolding new modules, refactoring across files, running tests, and iterating to a working build. Claude Code wasn't a helper here — it was the primary engineering partner.
 
 ---
 
@@ -440,6 +447,63 @@ npm run dev
 
 ---
 
+## ⚙️ Admin Role Configuration
+
+Roles aren't hardcoded into the agent — they're **fully managed at runtime** through a dedicated admin panel at `/admin/roles`. Hiring a new function? Adding a sub-team? Spinning off a variant of an existing role with one tweak? No code change, no redeploy, no DBA ticket. The agent picks up new roles on the **very next conversation**.
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+#### ➕ **Create Role**
+
+Define a new designation with title, description, team hint, and department hint. Then attach mandatory and optional access items one system at a time — Workday, AD, Jira, ServiceNow, anywhere.
+
+</td>
+<td width="33%" align="center">
+
+#### ✏️ **Edit Role**
+
+Update any field on an existing role — title, hints, descriptions — and add, modify, reorder, or remove its access items in place. Changes are live the moment they're saved.
+
+</td>
+<td width="33%" align="center">
+
+#### 📋 **Copy Role**
+
+Clone an existing role under a new ID **with every one of its access items duplicated**. Ideal for creating variants of a base role (e.g. "Cloud Engineer L1" → "Cloud Engineer L2") in seconds.
+
+</td>
+</tr>
+</table>
+
+### Access Item Workflow
+
+Each role owns a list of `role_access_items`. The admin UI lets you:
+
+- 📌 Flag each item as **mandatory** or **optional** — the agent enforces this when assembling a user's bundle
+- 🏷️ Assign each item to a **system** (Workday, AD, Jira, etc.) and an **owner team** for downstream approval routing
+- 🔗 Map each item to a **ServiceNow catalog item ID** for provisioning
+- ↕️ **Reorder** items within the mandatory and optional groups with move-up / move-down controls
+- 🗑️ Remove items, or delete an entire role (which cascades and cleans up its items)
+
+### Architecture
+
+The panel is backed by a thin REST surface under `/api/admin/*`, writing directly into the same SQLite schema (`designations` + `role_access_items`) that the agent reasons over. Dropdown values for teams, departments, systems, and owner teams are auto-derived from existing rows — so the catalog grows organically as new roles are added.
+
+| Endpoint | Verb | Purpose |
+|----------|------|---------|
+| `/api/admin/designations` | `GET` / `POST` | List or create a role |
+| `/api/admin/designations/{id}` | `PUT` / `DELETE` | Update or remove a role (cascades to items) |
+| `/api/admin/designations/copy` | `POST` | Clone a role + every access item under a new ID |
+| `/api/admin/designations/{id}/items` | `GET` / `POST` | List or add access items |
+| `/api/admin/items/{item_id}` | `PUT` / `DELETE` | Update or remove a single access item |
+| `/api/admin/options` | `GET` | Dropdown options (teams, depts, systems, owner_teams) |
+
+> **Why this matters:** Most enterprise IAM systems require a developer or DBA to provision a new role. Here, an authorized admin opens the browser, fills out a form, and the agent's role catalog updates instantly — no restart, no cache invalidation, nothing.
+
+---
+
 ## 🛠️ Technology Stack
 
 <table>
@@ -688,15 +752,29 @@ cd frontend && npm run lint && npm run build
 
 **Sun Life HackHERway 2025 · Problem Statement 6**
 
+<br/>
+
+<table>
+<tr>
+<td align="center" width="25%"><strong>Prashant Agarwal</strong></td>
+<td align="center" width="25%"><strong>Preeti Gaba</strong></td>
+<td align="center" width="25%"><strong>Salman Alam</strong></td>
+<td align="center" width="25%"><strong>Varuni Gupta</strong></td>
+</tr>
+</table>
+
+<br/>
+
 *Building the future of enterprise access management — one autonomous decision at a time.*
 
 <br/>
 
 <sub>Built with ❤️ at HackHERway 2025</sub><br/>
-<sub>🧠 Powered by Claude Sonnet 4.6 · 🔧 Orchestrated via MCP · ☁️ Hosted on AWS Bedrock</sub>
+<sub>🛠️ Engineered with Claude Code · 🧠 Powered by Claude Sonnet 4.6 · 🔧 Orchestrated via MCP · ☁️ Hosted on AWS Bedrock</sub>
 
 <br/><br/>
 
+<img src="https://img.shields.io/badge/Built%20With-Claude%20Code-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude Code"/>
 <img src="https://img.shields.io/badge/Made%20with-Agentic%20AI-9333EA?style=for-the-badge" alt="Agentic"/>
 <img src="https://img.shields.io/badge/Tool%20Use-MCP%20Native-D97757?style=for-the-badge" alt="MCP"/>
 
