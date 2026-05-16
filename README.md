@@ -317,7 +317,7 @@ sequenceDiagram
     Note over AI,DB: Phase 2 — Persistence
     AI->>DB: INSERT access_request + approval_events + audit_log
 
-    Note over AI,T,J,SN: Phase 3 — Parallel Fan-Out
+    Note over T,SN: Phase 3 — Parallel Fan-Out
     par Multi-Channel Notification
         AI->>T: 💬 Adaptive Card with action buttons
         AI->>J: 🎫 Create ticket per access item
