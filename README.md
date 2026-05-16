@@ -6,7 +6,7 @@
 
 <br/><br/>
 
-# 🤖 Atlas
+# 🤖 Sunlife Enterprise Access Provisioning
 
 ### **An Agentic AI System for Enterprise Access Provisioning**
 
@@ -409,20 +409,7 @@ cp .env.example .env            # Set BACKEND_URL=http://localhost:8000
 npm run dev
 ```
 
-> Open **http://localhost:3000** and log in with a demo user below.
-
----
-
-## 👥 Demo Personas
-
-Each persona is engineered to showcase a **distinct agentic capability**.
-
-| ACF2 ID | Password | Persona | Showcases |
-|---------|----------|---------|-----------|
-| 🟢 `ARUN01` | `arun123` | **Arun Mehta** — DevOps / Cloud Engineer | ✅ Happy path · pre-assigned role · fast-path bundle load |
-| 🟡 `NEHA02` | `neha123` | **Neha Kapoor** — Finance Analyst | 🛡️ **Privilege guard** — agent self-detects dangerous combo |
-| 🟣 `SARA03` | `sara123` | **Sara Chen** — Unmapped Employee | 🧠 **Cold-start reasoning** — agent matches role from scratch |
-| 🔵 `RAJ01` | `raj123` | **Raj Kumar** — Manager / Approver | 👔 Approver portal — multi-channel approval review |
+> Open **http://localhost:3000** to launch the app.
 
 ---
 
@@ -652,7 +639,7 @@ cd frontend && npm run lint && npm run build
 
 ---
 
-## 🏆 What Sets Atlas Apart
+## 🏆 What Sets This Apart
 
 <table>
 <tr>
