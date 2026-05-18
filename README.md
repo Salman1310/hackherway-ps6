@@ -756,10 +756,10 @@ cd frontend && npm run lint && npm run build
 
 <table>
 <tr>
-<td align="center" width="25%"><strong>Prashant Agarwal</strong></td>
-<td align="center" width="25%"><strong>Preeti Gaba</strong></td>
-<td align="center" width="25%"><strong>Salman Alam</strong></td>
 <td align="center" width="25%"><strong>Varuni Gupta</strong></td>
+<td align="center" width="25%"><strong>Preeti Gaba</strong></td>
+<td align="center" width="25%"><strong>Prashant Agarwal</strong></td>
+<td align="center" width="25%"><strong>Salman Alam</strong></td>
 </tr>
 </table>
 
