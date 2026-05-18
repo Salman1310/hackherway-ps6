@@ -238,6 +238,7 @@ graph TB
 Every user message enters a reasoning loop. The agent inspects available tools, decides what to call, observes the result, and iterates until it can confidently respond.
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables':{'fontSize':'17px','primaryColor':'#ede9fe','primaryTextColor':'#1f2937','primaryBorderColor':'#9333EA','lineColor':'#6b7280','actorBkg':'#f5f3ff','actorBorder':'#9333EA','actorTextColor':'#1f2937','noteBkgColor':'#fef3c7','noteTextColor':'#1f2937','noteBorderColor':'#d97706'}, 'sequence':{'actorFontSize':17,'noteFontSize':16,'messageFontSize':15,'actorMargin':90,'noteMargin':18,'boxMargin':12,'messageMargin':40,'wrap':true}}}%%
 sequenceDiagram
     autonumber
     participant U as 👤 User
@@ -248,7 +249,7 @@ sequenceDiagram
 
     U->>A: "I need DevOps access"
 
-    rect rgb(30, 27, 75)
+    rect rgb(243, 232, 255)
         Note over A: 🔁 Reasoning Cycle Begins
         A->>A: Plan: identify user → match role → build bundle
 
@@ -295,6 +296,7 @@ The agent has access to a **typed, structured set of tools** exposed via MCP ser
 ## 🌊 End-to-End Approval Flow
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables':{'fontSize':'17px','primaryColor':'#ede9fe','primaryTextColor':'#1f2937','primaryBorderColor':'#9333EA','lineColor':'#6b7280','actorBkg':'#f5f3ff','actorBorder':'#9333EA','actorTextColor':'#1f2937','noteBkgColor':'#fef3c7','noteTextColor':'#1f2937','noteBorderColor':'#d97706'}, 'sequence':{'actorFontSize':17,'noteFontSize':16,'messageFontSize':15,'actorMargin':90,'noteMargin':18,'boxMargin':12,'messageMargin':40,'wrap':true}}}%%
 sequenceDiagram
     autonumber
     participant E as 👤 Employee
