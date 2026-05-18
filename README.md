@@ -296,7 +296,7 @@ The agent has access to a **typed, structured set of tools** exposed via MCP ser
 ## 🌊 End-to-End Approval Flow
 
 ```mermaid
-%%{init: {'theme':'base', 'themeVariables':{'fontSize':'17px','primaryColor':'#ede9fe','primaryTextColor':'#1f2937','primaryBorderColor':'#9333EA','lineColor':'#6b7280','actorBkg':'#f5f3ff','actorBorder':'#9333EA','actorTextColor':'#1f2937','noteBkgColor':'#fef3c7','noteTextColor':'#1f2937','noteBorderColor':'#d97706'}, 'sequence':{'actorFontSize':17,'noteFontSize':16,'messageFontSize':15,'actorMargin':90,'noteMargin':18,'boxMargin':12,'messageMargin':40,'wrap':true}}}%%
+%%{init: {'theme':'base', 'themeVariables':{'fontSize':'18px','primaryColor':'#ede9fe','primaryTextColor':'#1f2937','primaryBorderColor':'#9333EA','lineColor':'#6b7280','actorBkg':'#f5f3ff','actorBorder':'#9333EA','actorTextColor':'#1f2937','noteBkgColor':'#fef3c7','noteTextColor':'#1f2937','noteBorderColor':'#d97706'}, 'sequence':{'actorFontSize':18,'noteFontSize':17,'messageFontSize':16,'actorMargin':95,'noteMargin':18,'boxMargin':12,'messageMargin':42,'wrap':true}}}%%
 sequenceDiagram
     autonumber
     participant E as 👤 Employee
