@@ -199,7 +199,6 @@ graph TB
     subgraph EXT["🌐 External Integrations"]
         Teams[💬 MS Teams]
         Jira[📋 Jira Cloud]
-        N8N[🔁 n8n Workflows]
     end
 
     UI -->|HTTPS| Loop
@@ -213,7 +212,6 @@ graph TB
 
     Approval --> Teams
     Approval --> Jira
-    Approval --> N8N
 
     Poller -.->|30s poll| Jira
     Poller -.->|update| SQLite
@@ -228,7 +226,7 @@ graph TB
     class Loop,Reasoner,Planner agent
     class SQLite,JiraMCP mcp
     class Approval,Poller,Mocks service
-    class Teams,Jira,N8N external
+    class Teams,Jira external
 ```
 
 ---
@@ -560,11 +558,6 @@ The panel is backed by a thin REST surface under `/api/admin/*`, writing directl
 <td>Self-contained demo of approver UX</td>
 </tr>
 <tr>
-<td><strong>🔁 Automation</strong></td>
-<td>n8n</td>
-<td>Webhook-driven workflow routing</td>
-</tr>
-<tr>
 <td><strong>🧪 Mocked Enterprise</strong></td>
 <td>Workday · Active Directory · SAM</td>
 <td>Demo enterprise systems for agent to query</td>
@@ -659,7 +652,6 @@ frontend/
 | `JIRA_EMAIL` | Jira service account email |
 | `JIRA_API_TOKEN` | Jira API token |
 | `JIRA_PROJECT_KEY` | Jira project key for tickets |
-| `N8N_WEBHOOK_URL` | n8n automation webhook |
 
 </details>
 

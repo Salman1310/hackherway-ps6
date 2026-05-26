@@ -24,7 +24,6 @@ router = APIRouter()
 
 TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL", "")
 BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "http://localhost:8000")
-N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "")
 
 # Systems routed to Jira (project access, DB access, collaboration tools)
 JIRA_ROUTED_SYSTEMS = {
@@ -165,18 +164,6 @@ def submit_request(body: SubmitRequest):
             team=team,
             manager=manager,
             items=events_created,
-        )
-
-    # Fire n8n webhook for Jira-routed items (fire-and-forget)
-    if N8N_WEBHOOK_URL:
-        _fire_n8n_webhook(
-            request_id=request_id,
-            acf2_id=body.acf2_id,
-            requester_name=requester_name,
-            role_title=role_title,
-            team=team,
-            final_bundle=body.final_bundle,
-            events_created=events_created,
         )
 
     # Create Jira tickets for Jira-routed items via MCP server
@@ -424,69 +411,6 @@ def approval_action(body: ApprovalAction):
             "partially_rejected" if all_resolved else "pending_approval"
         ),
     }
-
-
-# ── n8n Webhook ──────────────────────────────────────────────────────────────
-
-def _fire_n8n_webhook(
-    request_id: str,
-    acf2_id: str,
-    requester_name: str,
-    role_title: str,
-    team: str,
-    final_bundle: list[dict],
-    events_created: list[dict] | None = None,
-) -> None:
-    """Fire-and-forget POST to n8n for Jira-routed access items."""
-    # Build event_id lookup from approval events
-    event_map: dict[str, str] = {}
-    for ev in (events_created or []):
-        event_map[ev.get("access_item", "")] = ev.get("event_id", "")
-
-    # Enrich each item with its system tag from the DB
-    enriched_items = []
-    for item in final_bundle:
-        item_id = item.get("id", "")
-        item_rows = _safe_query(
-            "SELECT display_name, system, servicenow_catalog_item_id "
-            "FROM role_access_items WHERE access_item = ? LIMIT 1",
-            (item_id,),
-        )
-        system = item_rows[0].get("system", "") if item_rows else ""
-        display_name = item_rows[0].get("display_name", item_id) if item_rows else item_id
-        catalog_id = item_rows[0].get("servicenow_catalog_item_id", "") if item_rows else ""
-        enriched_items.append({
-            "id": item_id,
-            "event_id": event_map.get(item_id, ""),
-            "display_name": display_name,
-            "system": system,
-            "catalog_id": catalog_id,
-            "jira_routed": system in JIRA_ROUTED_SYSTEMS,
-        })
-
-    payload = {
-        "request_id": request_id,
-        "acf2_id": acf2_id,
-        "requester_name": requester_name,
-        "role_title": role_title,
-        "team": team,
-        "items": enriched_items,
-        "jira_items": [i for i in enriched_items if i["jira_routed"]],
-        "callback_url": f"{BACKEND_PUBLIC_URL}/api/approvals/action",
-        "jira_project_key": "HACK",
-    }
-
-    try:
-        http_requests.post(
-            N8N_WEBHOOK_URL,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=5,
-            verify=False,
-        )
-        log("AGENT", f"n8n webhook fired: {len(payload['jira_items'])} Jira-routed items")
-    except Exception as exc:
-        log("AGENT", f"n8n webhook failed (non-critical): {exc}")
 
 
 # ── Jira Ticket Creation via MCP ────────────────────────────────────────────
